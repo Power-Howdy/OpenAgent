@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
-import { createRequire } from 'node:module'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-const require = createRequire(import.meta.url)
-const tsx = require.resolve('tsx/cli')
-const cli = fileURLToPath(new URL('../src/entrypoints/cli.tsx', import.meta.url))
-const child = spawn(process.execPath, [tsx, cli, ...process.argv.slice(2)], {
-  stdio: 'inherit',
+const cli = fileURLToPath(new URL('../dist/entrypoints/cli.js', import.meta.url))
+if (!existsSync(cli)) {
+  console.error('OpenAgent has not been built. From the repo, run `npm run build`.')
+  process.exit(1)
+}
+
+const child = spawn(
+  process.execPath,
+  ['--enable-source-maps', '--no-warnings=ExperimentalWarning', cli, ...process.argv.slice(2)],
+  { stdio: 'inherit' },
+)
+child.on('exit', (code, signal) => {
+  if (signal) process.kill(process.pid, signal)
+  else process.exit(code ?? 1)
 })
-child.on('exit', code => process.exit(code ?? 1))

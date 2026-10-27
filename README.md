@@ -9,10 +9,20 @@ npm install
 npm start
 ```
 
-The `openagent` command is `npm start`, or `npx openagent` after install. One-shot:
+The `openagent` command is `npm start` while developing. One-shot:
 
 ```bash
 npm start -- -p "list the files in src/tools and say how many there are"
+```
+
+## Install
+
+`npm run build` compiles the CLI to `dist/`. `./scripts/install.sh` builds it and links `openagent` into `~/.local/bin` (override the directory with `OPENAGENT_BIN_DIR`). After that, `openagent` runs the built files with Node and does not need `tsx`.
+
+```bash
+npm install
+npm run build
+./bin/openagent.js --version
 ```
 
 ## Providers

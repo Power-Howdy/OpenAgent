@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "tsx src/entrypoints/cli.tsx",
+    "build": "node scripts/build.mjs",
     "setup": "tsx src/commands/setup.ts",
     "typecheck": "tsc --noEmit",
     "test": "c8 --check-coverage node --import tsx --test test/*.test.ts",
