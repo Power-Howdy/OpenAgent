@@ -1,0 +1,90 @@
+{
+  "name": "openagent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAgent Code, a multi-provider coding agent",
+  "bin": {
+    "openagent": "./bin/openagent.js"
+  },
+  "scripts": {
+    "start": "tsx src/entrypoints/cli.tsx",
+    "setup": "tsx src/commands/setup.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "c8 --check-coverage node --import tsx --test test/*.test.ts",
+    "test:coverage": "c8 --check-coverage node --import tsx --test test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.89",
+    "@ai-sdk/openai": "^4.0.103",
+    "@ai-sdk/openai-compatible": "^3.0.79",
+    "@commander-js/extra-typings": "^14.0.0",
+    "@inkjs/ui": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "ai": "^7.0.154",
+    "ansi-escapes": "^7.0.0",
+    "chalk": "^5.6.2",
+    "cli-highlight": "^2.1.11",
+    "cli-table3": "^0.6.5",
+    "commander": "^14.0.0",
+    "debug": "^4.4.3",
+    "diff": "5.2.2",
+    "dotenv": "^17.2.3",
+    "env-paths": "^3.0.0",
+    "figures": "^6.1.0",
+    "glob": "^11.0.3",
+    "highlight.js": "^11.11.1",
+    "ink": "5.2.1",
+    "ink-link": "^4.1.0",
+    "lodash-es": "^4.17.21",
+    "lru-cache": "^11.2.2",
+    "marked": "^16.4.1",
+    "react": "18.3.1",
+    "semver": "^7.7.3",
+    "sharp": "^0.34.4",
+    "shell-quote": "1.7.3",
+    "spawn-rx": "^5.1.2",
+    "wrap-ansi": "^9.0.2",
+    "zod": "3.25.76",
+    "zod-to-json-schema": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@types/react": "18.3.26",
+    "@types/semver": "^7.7.1",
+    "@types/shell-quote": "^1.7.5",
+    "c8": "^12.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "c8": {
+    "all": true,
+    "src": "src",
+    "reporter": ["text-summary", "text"],
+    "checkCoverage": true,
+    "lines": 100,
+    "statements": 100,
+    "functions": 100,
+    "branches": 100,
+    "include": [
+      "src/models/nim-catalog.ts",
+      "src/services/budget.ts",
+      "src/services/blueprintStore.ts",
+      "src/services/capabilities.ts",
+      "src/services/chatShape.ts",
+      "src/services/freeRouter.ts",
+      "src/services/match.ts",
+      "src/services/mcpConfig.ts",
+      "src/services/permissionMode.ts",
+      "src/services/planMode.ts",
+      "src/services/resolveProvider.ts",
+      "src/services/sentry.ts",
+      "src/services/skillStore.ts",
+      "src/services/statsig.ts",
+      "src/services/threadContext.ts"
+    ]
+  }
+}

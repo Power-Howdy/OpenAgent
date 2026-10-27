@@ -1,0 +1,10 @@
+name: openagent
+services:
+  searxng:
+    image: searxng/searxng:${SEARXNG_VERSION}
+    container_name: openagent-searxng
+    ports:
+      - "127.0.0.1:18088:8080"
+    volumes:
+      - ${SEARXNG_SETTINGS}:/etc/searxng/settings.yml:ro
+    restart: "no"

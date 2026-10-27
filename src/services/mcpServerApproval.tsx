@@ -1,0 +1,46 @@
+import React from 'react'
+import { render } from 'ink'
+import { MCPServerMultiselectDialog } from '../components/MCPServerMultiselectDialog.js'
+import { MCPServerApprovalDialog } from '../components/MCPServerApprovalDialog.js'
+import { pendingProjectMcpNames } from './mcpClient.js'
+
+export async function handleMcprcServerApprovals(): Promise<void> {
+  const pendingServers = pendingProjectMcpNames()
+
+  if (pendingServers.length === 0) {
+    return
+  }
+
+  await new Promise<void>(resolve => {
+    const clearScreenAndResolve = () => {
+      // Clear screen after dialog
+      process.stdout.write('\x1b[2J\x1b[3J\x1b[H', () => {
+        resolve()
+      })
+    }
+
+    if (pendingServers.length === 1 && pendingServers[0] !== undefined) {
+      const result = render(
+        <MCPServerApprovalDialog
+          serverName={pendingServers[0]}
+          onDone={() => {
+            result.unmount?.()
+            clearScreenAndResolve()
+          }}
+        />,
+        { exitOnCtrlC: false },
+      )
+    } else {
+      const result = render(
+        <MCPServerMultiselectDialog
+          serverNames={pendingServers}
+          onDone={() => {
+            result.unmount?.()
+            clearScreenAndResolve()
+          }}
+        />,
+        { exitOnCtrlC: false },
+      )
+    }
+  })
+}
