@@ -1,2 +1,2 @@
 export const smallAnimatedArray = ['*']
-export const largeAnimatedAray = ['*']
+export const largeAnimatedArray = ['*']

@@ -1,51 +1,74 @@
-import { Box, Text, useInput } from 'ink'
-import React from 'react'
+import React, { useState, useEffect } from 'react'
+import { Box, Text, useInput, Newline } from 'ink'
 import { Command } from '../commands.js'
-import { Select } from '../components/CustomSelect/index.js'
 import {
   getPermissionMode,
-  parsePermissionMode,
   permissionModeLabel,
   setPermissionMode,
+  parsePermissionMode,
   type PermissionLevel,
 } from '../services/permissionMode.js'
+import { getTheme } from '../utils/theme.js'
 
-const LEVELS: { id: PermissionLevel; detail: string }[] = [
-  { id: 'manual', detail: 'Ask before every tool' },
-  { id: 'acceptEdits', detail: 'Approve project edits. Ask for shell and other tools' },
-  { id: 'auto', detail: 'Approve edits, reads, and inspection commands' },
-  { id: 'bypass', detail: 'Approve every tool. A plan still waits for you' },
-]
+const PERMISSION_LEVELS: PermissionLevel[] = ['manual', 'acceptEdits', 'auto', 'bypass']
 
-function applyMode(requested: string): string {
-  const mode = parsePermissionMode(requested)
-  if (!mode) {
-    return `Unknown permission level "${requested}". Choose manual, accept edits, auto, or bypass.`
-  }
-  setPermissionMode(mode)
-  return `Permission level is ${permissionModeLabel(mode)}.`
-}
+function PermissionSelector({
+  onDone,
+}: {
+  onDone: (result: string) => void
+}) {
+  const [selected, setSelected] = useState(0)
+  const theme = getTheme()
+  const currentMode = getPermissionMode()
 
-function PermissionPicker({ onDone }: { onDone: (result?: string) => void }): React.ReactNode {
-  const current = getPermissionMode()
-  useInput((input, key) => {
-    if (key.escape || (key.ctrl && (input === 'c' || input === 'd'))) {
-      onDone('Permission level unchanged.')
+  useEffect(() => {
+    const idx = PERMISSION_LEVELS.indexOf(currentMode)
+    if (idx >= 0) setSelected(idx)
+  }, [currentMode])
+
+  useInput((_, key) => {
+    if (key.upArrow) {
+      setSelected((prev) => (prev <= 0 ? PERMISSION_LEVELS.length - 1 : prev - 1))
+      return true
+    }
+    if (key.downArrow) {
+      setSelected((prev) => (prev >= PERMISSION_LEVELS.length - 1 ? 0 : prev + 1))
+      return true
+    }
+    if (key.return || key.tab) {
+      setPermissionMode(PERMISSION_LEVELS[selected])
+      onDone(`Permission level is ${permissionModeLabel(PERMISSION_LEVELS[selected])}.`)
+      return true
+    }
+    if (key.escape) {
+      onDone(`Permission level is ${permissionModeLabel(currentMode)}.`)
+      return true
+    }
+    const num = Number((key as { key?: string }).key)
+    if (num >= 1 && num <= 4) {
+      setSelected(num - 1)
+      setPermissionMode(PERMISSION_LEVELS[num - 1])
+      onDone(`Permission level is ${permissionModeLabel(PERMISSION_LEVELS[num - 1])}.`)
+      return true
     }
   })
+
   return (
-    <Box flexDirection="column" gap={1}>
-      <Text bold>Select a permission level</Text>
-      <Text dimColor>Current: {permissionModeLabel(current)}. Esc keeps it. Shift+Tab still cycles.</Text>
-      <Select
-        visibleOptionCount={LEVELS.length}
-        focusValue={permissionModeLabel(current)}
-        options={LEVELS.map(level => ({
-          value: permissionModeLabel(level.id),
-          label: `${permissionModeLabel(level.id)} — ${level.detail}${level.id === current ? ' (current)' : ''}`,
-        }))}
-        onChange={value => onDone(applyMode(value))}
-      />
+    <Box flexDirection="column" paddingX={2} paddingY={1}>
+      <Text color={theme.permission}>Select permission level:</Text>
+      <Newline />
+      {PERMISSION_LEVELS.map((level, idx) => (
+        <Box key={level} flexDirection="row" alignItems="center">
+          <Text color={idx === selected ? theme.suggestion : undefined}>
+            {idx + 1}. {permissionModeLabel(level)}
+          </Text>
+          {level === currentMode && (
+            <Text color={theme.success} dimColor> (current)</Text>
+          )}
+        </Box>
+      ))}
+      <Newline />
+      <Text dimColor>Use ↑/↓ arrows, 1-4 keys, or Enter/Tab to select. Esc to cancel.</Text>
     </Box>
   )
 }
@@ -53,17 +76,12 @@ function PermissionPicker({ onDone }: { onDone: (result?: string) => void }): Re
 const permissions = {
   type: 'local-jsx',
   name: 'permissions',
-  aliases: ['permission'],
-  description: 'Choose a permission level: manual, accept edits, auto, or bypass',
+  description:
+    'Set the permission level: manual, auto, accept edits, or bypass permissions',
   isEnabled: true,
   isHidden: false,
-  async call(onDone, _context, args = '') {
-    const requested = args.trim()
-    if (requested) {
-      onDone(applyMode(requested))
-      return null
-    }
-    return <PermissionPicker onDone={onDone} />
+  async call(onDone) {
+    return <PermissionSelector onDone={onDone} />
   },
   userFacingName() {
     return 'permissions'

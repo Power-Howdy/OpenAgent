@@ -15,7 +15,7 @@ test('free mode picks the capable model with the most remaining requests', () =>
   const choice = chooseNimModel({ now, usage, sticky: null })
   assert.equal(choice.kind, 'model')
   if (choice.kind !== 'model') return
-  assert.equal(choice.model.id, 'deepseek-v4.1-flash')
+  assert.equal(choice.model.id, 'nemotron-3.5-super-vl-120b-a12b')
 })
 
 test('a model stays sticky while it still has budget', () => {

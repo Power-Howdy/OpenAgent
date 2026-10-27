@@ -1,4 +1,5 @@
 import { parseArgs } from 'util'
+import { fileURLToPath } from 'url'
 import { runSetup, sandboxDown } from '../services/runtime.js'
 
 export async function setupCommand(argv = process.argv.slice(2)): Promise<void> {
@@ -20,8 +21,7 @@ export async function sandboxDownCommand(all: boolean): Promise<void> {
 }
 
 function isDirect(): boolean {
-  const entry = process.argv[1] ?? ''
-  return entry.endsWith('setup.ts') || entry.endsWith('setup.js')
+  return fileURLToPath(import.meta.url) === process.argv[1]
 }
 
 if (isDirect()) {

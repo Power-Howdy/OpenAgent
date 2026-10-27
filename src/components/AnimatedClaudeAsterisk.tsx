@@ -2,7 +2,7 @@ import React from 'react'
 import { Text } from 'ink'
 import {
   smallAnimatedArray,
-  largeAnimatedAray,
+  largeAnimatedArray,
 } from '../constants/OpenAgent-asterisk-ascii-art.js'
 import { getTheme } from '../utils/theme.js'
 
@@ -28,7 +28,7 @@ export function AnimatedOpenAgentAsterisk({
 
   // Determine which array to use based on size
   const animatedArray =
-    size === 'large' ? largeAnimatedAray : smallAnimatedArray
+    size === 'large' ? largeAnimatedArray : smallAnimatedArray
 
   // Animation interval for ascii art
   React.useEffect(() => {

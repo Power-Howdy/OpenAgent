@@ -73,7 +73,7 @@ export type ProgressMessage = {
 export type Message = UserMessage | AssistantMessage | ProgressMessage
 
 const MAX_TOOL_USE_CONCURRENCY = 10
-const MAX_AGENT_TURNS = 32
+const MAX_AGENT_TURNS = 100
 const MAX_REPEATED_TOOL_ERRORS = 3
 const MAX_STREAM_CONTINUES = 3
 const COMPACT_INPUT_TOKENS = 80_000
