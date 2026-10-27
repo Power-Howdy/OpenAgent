@@ -85,7 +85,7 @@
     "@types/shell-quote": "^1.7.5",
     "c8": "^12.0.0",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "c8": {
     "all": true,
