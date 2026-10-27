@@ -1,4 +1,4 @@
-import { Hunk } from 'diff'
+import { type StructuredPatchHunk } from 'diff'
 import { existsSync, mkdirSync, readFileSync, statSync } from 'fs'
 import { Box, Text } from 'ink'
 import { EOL } from 'os'
@@ -276,6 +276,6 @@ ${addLineNumbers({
     type: 'create' | 'update'
     filePath: string
     content: string
-    structuredPatch: Hunk[]
+    structuredPatch: StructuredPatchHunk[]
   }
 >

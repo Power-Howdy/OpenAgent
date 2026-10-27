@@ -216,7 +216,7 @@ Command: ${command}
   command => command, // memoize by command only
 )
 
-const COMMAND_LIST_SEPARATORS = new Set<ControlOperator>([
+const COMMAND_LIST_SEPARATORS = new Set<string>([
   '&&',
   '||',
   ';',
