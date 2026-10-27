@@ -175,8 +175,10 @@ async function setup(
   cwd: string,
   dangerouslySkipPermissions?: boolean,
 ): Promise<void> {
-  // Don't await so we don't block startup
-  setCwd(cwd)
+  // Set the working directory before reading project config, because
+  // getCwd() (and everything keyed on it, e.g. getCurrentProjectConfig)
+  // returns the stale process.cwd() until the shell cd completes.
+  await setCwd(cwd)
 
   // Always grant read permissions for original working dir
   grantReadPermissionForOriginalDir()
