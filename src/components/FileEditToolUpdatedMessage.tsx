@@ -1,4 +1,4 @@
-import { Hunk } from 'diff'
+import { type StructuredPatchHunk } from 'diff'
 import { Box, Text } from 'ink'
 import * as React from 'react'
 import { intersperse } from '../utils/array.js'
@@ -10,7 +10,7 @@ import { useTerminalSize } from '../hooks/useTerminalSize.js'
 
 type Props = {
   filePath: string
-  structuredPatch: Hunk[]
+  structuredPatch: StructuredPatchHunk[]
   verbose: boolean
 }
 

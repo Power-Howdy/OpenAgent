@@ -2,7 +2,7 @@ import { isAbsolute, resolve } from 'path'
 import { getCwd } from '../../utils/state.js'
 import { readFileSync } from 'fs'
 import { detectFileEncoding } from '../../utils/file.js'
-import { type Hunk } from 'diff'
+import { type StructuredPatchHunk } from 'diff'
 import { getPatch } from '../../utils/diff.js'
 
 /**
@@ -13,7 +13,7 @@ export function applyEdit(
   file_path: string,
   old_string: string,
   new_string: string,
-): { patch: Hunk[]; updatedFile: string } {
+): { patch: StructuredPatchHunk[]; updatedFile: string } {
   const fullFilePath = isAbsolute(file_path)
     ? file_path
     : resolve(getCwd(), file_path)

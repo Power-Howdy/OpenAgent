@@ -1,4 +1,4 @@
-import { type Hunk, structuredPatch } from 'diff'
+import { type StructuredPatchHunk, structuredPatch } from 'diff'
 
 const CONTEXT_LINES = 3
 
@@ -18,7 +18,7 @@ export function getPatch({
   fileContents: string
   oldStr: string
   newStr: string
-}): Hunk[] {
+}): StructuredPatchHunk[] {
   return structuredPatch(
     filePath,
     filePath,

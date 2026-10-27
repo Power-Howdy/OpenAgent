@@ -4,7 +4,7 @@ import { decodeRpc, encodeRpc } from './lsp.js'
 export const DEBUG_PORT = 19222
 
 let socket: Socket | null = null
-let buffer: Buffer = Buffer.alloc(0)
+let buffer: Buffer = Buffer.alloc(0) as Buffer
 let seq = 1
 const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
 
@@ -56,7 +56,7 @@ export async function openDap(port = DEBUG_PORT): Promise<void> {
   buffer = Buffer.alloc(0)
   seq = 1
   socket.on('data', chunk => {
-    buffer = Buffer.concat([buffer, chunk])
+    buffer = Buffer.concat([buffer, chunk] as (Buffer | Uint8Array)[])
     const decoded = decodeRpc(buffer)
     buffer = decoded.rest
     for (const message of decoded.messages) {
