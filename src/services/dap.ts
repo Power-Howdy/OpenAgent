@@ -56,7 +56,7 @@ export async function openDap(port = DEBUG_PORT): Promise<void> {
   buffer = Buffer.alloc(0)
   seq = 1
   socket.on('data', chunk => {
-    buffer = Buffer.concat([buffer, chunk])
+    buffer = Buffer.concat([buffer, chunk] as (Buffer | Uint8Array)[])
     const decoded = decodeRpc(buffer)
     buffer = decoded.rest
     for (const message of decoded.messages) {
