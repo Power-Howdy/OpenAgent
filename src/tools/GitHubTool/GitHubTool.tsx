@@ -20,7 +20,8 @@ export const GitHubTool = {
   description: async () => 'List, view, and create GitHub issues, and read or comment on a pull request.',
   prompt: async () => 'Use the host gh command. Jira and Linear stay on MCP.',
   inputSchema,
-  isReadOnly: () => true,
+  isReadOnly: (input?: { action?: string }) =>
+    input?.action != null && !WRITES.has(input.action),
   isEnabled() {
     return true
   },
@@ -28,7 +29,7 @@ export const GitHubTool = {
   async *call(input: z.infer<typeof inputSchema>) {
     if (WRITES.has(input.action) && isPlanMode()) {
       const text = 'Plan mode only allows GitHub reads.'
-      yield { type: 'result' as const, data: text, resultForAssistant: text }
+      yield { type: 'result' as const, data: text, resultForAssistant: text, isError: true }
       return
     }
     const text = await github(input)

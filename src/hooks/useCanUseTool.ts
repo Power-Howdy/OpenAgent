@@ -127,6 +127,10 @@ function useCanUseTool(
               resolveWithCancelledAndAbortAllToolCalls()
             } else {
               logError(error)
+              resolve({
+                result: false,
+                message: error instanceof Error ? error.message : String(error),
+              })
             }
           })
       })

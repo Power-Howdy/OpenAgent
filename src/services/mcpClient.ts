@@ -453,7 +453,7 @@ async function requestAll<
     )
 }
 
-export const getMCPTools = memoize(async (): Promise<Tool[]> => {
+export async function getMCPTools(): Promise<Tool[]> {
   const toolsList = await requestAll<
     ListToolsResult,
     typeof ListToolsResultSchema
@@ -498,7 +498,7 @@ export const getMCPTools = memoize(async (): Promise<Tool[]> => {
       }),
     ),
   )
-})
+}
 
 async function callMCPTool({
   client: { client, name },

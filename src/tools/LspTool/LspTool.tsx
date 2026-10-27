@@ -39,7 +39,8 @@ export const LspTool = {
   description: async () => 'Hover, go to definition, find references, or rename through a language server in the sandbox.',
   prompt: async () => 'Use hover, definition, or references to navigate. line and character are 1-based. Rename asks for permission and writes the edit.',
   inputSchema,
-  isReadOnly: () => true,
+  isReadOnly: (input?: { action?: string }) =>
+    input?.action != null && input.action !== 'rename',
   isEnabled() {
     return true
   },

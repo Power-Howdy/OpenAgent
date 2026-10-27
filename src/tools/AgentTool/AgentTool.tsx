@@ -204,16 +204,16 @@ export const AgentTool = {
     }
   },
   isReadOnly() {
-    return true // for now...
+    return false
   },
   async isEnabled() {
     return true
   },
   userFacingName() {
-    return 'Task'
+    return 'Agent'
   },
   needsPermissions() {
-    return false
+    return true
   },
   renderResultForAssistant(data) {
     return data

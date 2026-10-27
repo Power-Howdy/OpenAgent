@@ -34,6 +34,7 @@ import { toolsForPlanMode, withPlanModePrompt, isPlanMode } from './services/pla
 import { formatTodos, loadTodos } from './services/todos.js'
 import { setTranscript } from './services/transcript.js'
 import { getPermissionMode, permissionModePrompt } from './services/permissionMode.js'
+import { redactSecrets } from './services/redact.js'
 import { getCwd } from './utils/state.js'
 
 export type Response = { costUSD: number; response: string }
@@ -71,6 +72,69 @@ export type ProgressMessage = {
 export type Message = UserMessage | AssistantMessage | ProgressMessage
 
 const MAX_TOOL_USE_CONCURRENCY = 10
+const MAX_AGENT_TURNS = 32
+const MAX_REPEATED_TOOL_ERRORS = 3
+const COMPACT_INPUT_TOKENS = 80_000
+
+type LoopState = { turns: number; repeatedError: string; repeats: number }
+
+function loopStateOf(options: ToolUseContext['options']): LoopState {
+  const existing = options.loopState as LoopState | undefined
+  if (existing) return existing
+  const created: LoopState = { turns: 0, repeatedError: '', repeats: 0 }
+  options.loopState = created
+  return created
+}
+
+function toolErrorKey(results: UserMessage[]): string | null {
+  const keys: string[] = []
+  for (const message of results) {
+    const content = message.message.content
+    if (!Array.isArray(content)) continue
+    for (const block of content) {
+      if (block.type === 'tool_result' && block.is_error) {
+        keys.push(String(block.content ?? '').slice(0, 200))
+      }
+    }
+  }
+  return keys.length ? keys.join('\n') : null
+}
+
+async function compactThread(
+  history: Message[],
+  toolUseContext: ToolUseContext,
+): Promise<Message[]> {
+  try {
+    const summary = await querySonnet(
+      normalizeMessagesForAPI(history.filter(message => message.type !== 'progress')),
+      ['Summarize this coding session so work can continue. Include files, decisions, errors, and the next step. Do not call tools.'],
+      0,
+      [],
+      toolUseContext.abortController.signal,
+      {
+        dangerouslySkipPermissions: false,
+        model: toolUseContext.options.slowAndCapableModel ?? '',
+        prependCLISysprompt: false,
+      },
+    )
+    const content = summary.message.content
+    const text = typeof content === 'string'
+      ? content
+      : content.find(block => block.type === 'text' && 'text' in block)?.text
+    if (!text || text.startsWith('API Error')) return history
+    const replacement = [
+      createUserMessage(`The earlier conversation was compacted.\n\n${text}`),
+      summary,
+    ]
+    const replace = toolUseContext.options.onReplaceMessages
+    if (typeof replace === 'function') {
+      ;(replace as (next: Message[]) => void)(replacement)
+    }
+    return replacement
+  } catch {
+    return history
+  }
+}
 
 function withPermissionPrompt(systemPrompt: string[]): string[] {
   const note = permissionModePrompt(getPermissionMode())
@@ -142,7 +206,16 @@ export async function* query(
     m2: AssistantMessage,
   ) => Promise<BinaryFeedbackResult>,
 ): AsyncGenerator<Message, void> {
+  for (;;) {
   const options = toolUseContext.options
+  const loop = loopStateOf(options)
+  loop.turns += 1
+  if (loop.turns > MAX_AGENT_TURNS) {
+    yield createAssistantMessage(
+      'Stopped after 32 turns. Say what is finished and what is still open, then wait for the user.',
+    )
+    return
+  }
   if (options.messageLogName) loadTodos(String(options.messageLogName))
   setTranscript(messages)
   if (!options.allTools) options.allTools = options.tools
@@ -167,6 +240,9 @@ export async function* query(
           toolUseContext.options.dangerouslySkipPermissions ?? false,
         model: toolUseContext.options.slowAndCapableModel,
         prependCLISysprompt: true,
+        onPartial: toolUseContext.options.onAssistantPartial as
+          | ((message: AssistantMessage) => void)
+          | undefined,
       },
     )
   }
@@ -204,7 +280,7 @@ export async function* query(
   // TODO: tighten up the logic -- we can run concurrently much more often than this
   if (
     toolUseMessages.every(msg =>
-      toolUseContext.options.tools.find(t => t.name === msg.name)?.isReadOnly(),
+      toolUseContext.options.tools.find(t => t.name === msg.name)?.isReadOnly(msg.input),
     )
   ) {
     for await (const message of runToolsConcurrently(
@@ -252,14 +328,29 @@ export async function* query(
     return aIndex - bIndex
   })
 
-  yield* await query(
-    [...messages, assistantMessage, ...orderedToolResults],
-    systemPrompt,
-    context,
-    canUseTool,
-    toolUseContext,
-    getBinaryFeedbackResponse,
-  )
+  const errorKey = toolErrorKey(orderedToolResults)
+  if (errorKey && errorKey === loop.repeatedError) loop.repeats += 1
+  else {
+    loop.repeatedError = errorKey ?? ''
+    loop.repeats = errorKey ? 1 : 0
+  }
+  if (loop.repeats >= MAX_REPEATED_TOOL_ERRORS) {
+    yield createAssistantMessage(
+      'Stopped because the same tool error repeated. Tell the user the error and the next step that needs them.',
+    )
+    return
+  }
+
+  let nextMessages: Message[] = [...messages, assistantMessage, ...orderedToolResults]
+  if (
+    assistantMessage.message.usage.input_tokens >= COMPACT_INPUT_TOKENS &&
+    nextMessages.length > 6
+  ) {
+    nextMessages = await compactThread(nextMessages, toolUseContext)
+  }
+
+  messages = nextMessages
+  }
 }
 
 async function* runToolsConcurrently(
@@ -362,6 +453,14 @@ export async function* runToolUse(
     }
   } catch (e) {
     logError(e)
+    yield createUserMessage([
+      {
+        type: 'tool_result',
+        content: formatError(e),
+        is_error: true,
+        tool_use_id: toolUse.id,
+      },
+    ])
   }
 }
 
@@ -460,9 +559,11 @@ async function* checkPermissionsAndCallTool(
   // Call the tool
   try {
     const generator = tool.call(normalizedInput as never, context, canUseTool)
+    let sawResult = false
     for await (const result of generator) {
       switch (result.type) {
         case 'result':
+          sawResult = true
           logEvent(result.isError ? 'tengu_tool_use_error' : 'tengu_tool_use_success', {
             messageID: assistantMessage.message.id,
             toolName: tool.name,
@@ -496,6 +597,16 @@ async function* checkPermissionsAndCallTool(
           )
       }
     }
+    if (!sawResult) {
+      yield createUserMessage([
+        {
+          type: 'tool_result',
+          content: `Error: ${tool.name} finished without a result`,
+          is_error: true,
+          tool_use_id: toolUseID,
+        },
+      ])
+    }
   } catch (error) {
     const content = formatError(error)
     logError(error)
@@ -527,7 +638,7 @@ function formatError(error: unknown): string {
   if ('stdout' in error && typeof error.stdout === 'string') {
     parts.push(error.stdout)
   }
-  const fullMessage = parts.filter(Boolean).join('\n')
+  const fullMessage = redactSecrets(parts.filter(Boolean).join('\n'))
   if (fullMessage.length <= 10000) {
     return fullMessage
   }

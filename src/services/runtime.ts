@@ -5,6 +5,7 @@ import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { execFileNoThrow } from '../utils/execFileNoThrow.js'
 import { OpenAgent_BASE_DIR } from '../utils/env.js'
+import { redactSecrets, scrubbedEnv } from './redact.js'
 
 export const SANDBOX_IMAGE = 'openagent-sandbox:local'
 export const SEARXNG_URL = 'http://127.0.0.1:18088'
@@ -45,8 +46,8 @@ export async function runHost(argv: string[], timeoutMs: number, signal?: AbortS
   const result = await execFileNoThrow(file, args, signal, timeoutMs)
   return {
     code: signal?.aborted ? 130 : result.code,
-    stdout: result.stdout.slice(-100_000),
-    stderr: result.stderr.slice(-100_000),
+    stdout: redactSecrets(result.stdout.slice(-100_000)),
+    stderr: redactSecrets(result.stderr.slice(-100_000)),
   }
 }
 
@@ -63,7 +64,7 @@ export const defaultSpawn: SpawnFn = (file, args, timeoutMs, env, signal) =>
     const timeout = AbortSignal.timeout(timeoutMs)
     const abort = signal ? AbortSignal.any([timeout, signal]) : timeout
     const child = spawn(file, args, {
-      env: env ?? process.env,
+      env: env ?? scrubbedEnv(),
       signal: abort,
     })
     child.stdout?.on('data', chunk => {

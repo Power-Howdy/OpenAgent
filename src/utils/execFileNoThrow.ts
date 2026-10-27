@@ -1,4 +1,5 @@
 import { execFile } from 'child_process'
+import { scrubbedEnv } from '../services/redact.js'
 import { getCwd } from './state.js'
 import { logError } from './log.js'
 
@@ -25,6 +26,7 @@ export function execFileNoThrow(
           signal: abortSignal,
           timeout,
           cwd: getCwd(),
+          env: scrubbedEnv(),
         },
         (error, stdout, stderr) => {
           if (error) {

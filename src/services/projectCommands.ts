@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { splitCommand } from '../utils/commands.js'
+import { isPlanModeReadOnlyCommand } from './planMode.js'
 
 export type ProjectMarkers = {
   packageTest?: string
@@ -140,6 +142,38 @@ export function topCpuProf(profile: {
 }
 
 const MERMAID = ['flowchart', 'sequenceDiagram', 'classDiagram', 'erDiagram']
+
+const HOST_BINS = new Set([
+  'bun',
+  'cargo',
+  'git',
+  'go',
+  'make',
+  'npm',
+  'npx',
+  'pip',
+  'pnpm',
+  'pytest',
+  'uv',
+  'yarn',
+])
+
+export function shouldUseSandbox(
+  command: string,
+  isolated: boolean | undefined,
+  ready: boolean,
+): boolean {
+  if (!ready) return false
+  if (isolated === true) return true
+  if (isPlanModeReadOnlyCommand(command)) return false
+  const segments = splitCommand(command)
+  if (segments.length === 0) return true
+  const hostToolchain = segments.every(segment => {
+    const bin = segment.trim().split(/\s+/)[0]?.split('/').pop()
+    return !!bin && HOST_BINS.has(bin)
+  })
+  return !hostToolchain
+}
 
 export function mermaidSource(source: string): string | null {
   if (MERMAID.some(kind => source.includes(kind))) return source

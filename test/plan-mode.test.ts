@@ -28,12 +28,13 @@ test('plan mode keeps read-only tools and bash, and drops workers', () => {
   const read = { name: 'Read', isReadOnly: () => true }
   const bash = { name: 'Bash', isReadOnly: () => false }
   const edit = { name: 'Edit', isReadOnly: () => false }
-  const agent = { name: 'dispatch_agent', isReadOnly: () => true }
+  const agent = { name: 'Agent', isReadOnly: () => true }
   const exitPlan = { name: 'ExitPlanMode', isReadOnly: () => false }
-  const tools = toolsForPlanMode([read, bash, edit, agent], exitPlan)
+  const sql = { name: 'Sql', isReadOnly: () => false }
+  const tools = toolsForPlanMode([read, bash, edit, agent, sql], exitPlan)
   assert.deepEqual(
     tools.map(tool => tool.name),
-    ['Read', 'Bash', 'ExitPlanMode'],
+    ['Read', 'Bash', 'Sql', 'ExitPlanMode'],
   )
 })
 
@@ -52,7 +53,8 @@ test('plan mode notifies subscribers and rejects writes hidden in a command', ()
   assert.equal(isPlanModeReadOnlyCommand('cat `secret`'), false)
   assert.equal(isPlanModeReadOnlyCommand('git'), false)
   assert.equal(isPlanModeReadOnlyCommand('/usr/bin/ls src'), true)
-  assert.equal(isPlanModeReadOnlyCommand('sed s/a/b/ file'), true)
+  assert.equal(isPlanModeReadOnlyCommand('sed s/a/b/ file'), false)
+  assert.equal(isPlanModeReadOnlyCommand('awk "{print}" file'), false)
   assert.equal(isPlanModeReadOnlyCommand('find . -exec ls {} +'), false)
   assert.equal(isPlanModeReadOnlyCommand('find . -execdir ls {} +'), false)
   assert.equal(isPlanModeReadOnlyCommand('find . -ok rm {} \\;'), false)

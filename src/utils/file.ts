@@ -1,6 +1,8 @@
 import {
   readFileSync,
   writeFileSync,
+  renameSync,
+  unlinkSync,
   openSync,
   readSync,
   closeSync,
@@ -25,6 +27,7 @@ import { glob as globLib } from 'glob'
 import { cwd } from 'process'
 import { listAllContentFiles } from './ripgrep.js'
 import { LRUCache } from 'lru-cache'
+import { recordFileCheckpoint } from '../services/checkpoints.js'
 import { getCwd } from './state.js'
 
 export type File = {
@@ -140,7 +143,19 @@ export function writeTextContent(
     toWrite = content.split('\n').join('\r\n')
   }
 
-  writeFileSync(filePath, toWrite, { encoding, flush: true })
+  if (existsSync(filePath)) recordFileCheckpoint(filePath)
+  const temporary = `${filePath}.${process.pid}.openagent-tmp`
+  try {
+    writeFileSync(temporary, toWrite, { encoding, flush: true })
+    renameSync(temporary, filePath)
+  } catch (error) {
+    try {
+      unlinkSync(temporary)
+    } catch {
+      // The temporary file was not created.
+    }
+    throw error
+  }
 }
 
 const repoEndingCache = new LRUCache<string, LineEndingType>({

@@ -2,7 +2,7 @@ import { randomUUID, type UUID } from 'crypto'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import { jsonSchema, streamText, tool as aiTool, type ModelMessage } from 'ai'
+import { jsonSchema, streamText, tool as aiTool, type LanguageModelUsage, type ModelMessage } from 'ai'
 import type { Tool } from '../Tool.js'
 import type { AssistantMessage, UserMessage } from '../query.js'
 import type { ContentBlock, ContentBlockParam } from '../types/api.js'
@@ -54,10 +54,19 @@ export function formatSystemPromptWithContext(
   return [...systemPrompt, ...contextBlocks]
 }
 
+function usageFrom(usage?: LanguageModelUsage) {
+  return {
+    input_tokens: usage?.inputTokens ?? 0,
+    output_tokens: usage?.outputTokens ?? 0,
+    cache_creation_input_tokens: usage?.inputTokenDetails.cacheWriteTokens ?? 0,
+    cache_read_input_tokens: usage?.inputTokenDetails.cacheReadTokens ?? 0,
+  }
+}
+
 function assistantFrom(
   model: string,
   blocks: ContentBlock[],
-  extra: { error?: boolean; durationMs?: number } = {},
+  extra: { error?: boolean; durationMs?: number; id?: string; usage?: LanguageModelUsage } = {},
 ): AssistantMessage {
   const content = blocks.length
     ? blocks
@@ -66,21 +75,16 @@ function assistantFrom(
     type: 'assistant',
     costUSD: 0,
     durationMs: extra.durationMs ?? 0,
-    uuid: randomUUID() as UUID,
+    uuid: (extra.id ?? randomUUID()) as UUID,
     isApiErrorMessage: extra.error,
     message: {
-      id: randomUUID(),
+      id: extra.id ?? randomUUID(),
       type: 'message',
       role: 'assistant',
       model,
       stop_reason: content.some(block => block.type === 'tool_use') ? 'tool_use' : 'end_turn',
       stop_sequence: null,
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-      },
+      usage: usageFrom(extra.usage),
       content,
     },
   }
@@ -91,16 +95,22 @@ function textMessage(model: string, text: string, error = false): AssistantMessa
 }
 
 function toModelMessages(turns: ChatTurn[]): ModelMessage[] {
+  const toolNames = new Map<string, string>()
   const messages: ModelMessage[] = []
   for (const turn of turns) {
     if (turn.role === 'assistant') {
+      if (Array.isArray(turn.content)) {
+        for (const block of turn.content) {
+          if (block.type === 'tool_use') toolNames.set(block.id, block.name)
+        }
+      }
       messages.push({
         role: 'assistant',
         content: assistantParts(turn.content),
       } as ModelMessage)
       continue
     }
-    const toolResults = toolResultMessages(turn.content)
+    const toolResults = toolResultMessages(turn.content, toolNames)
     if (toolResults.length) {
       messages.push(...toolResults)
       continue
@@ -148,7 +158,10 @@ function userParts(content: string | ContentBlockParam[]) {
   return parts.length ? parts : NO_CONTENT_MESSAGE
 }
 
-function toolResultMessages(content: string | ContentBlockParam[]): ModelMessage[] {
+function toolResultMessages(
+  content: string | ContentBlockParam[],
+  toolNames: Map<string, string>,
+): ModelMessage[] {
   if (typeof content === 'string') return []
   if (!content.some(block => block.type === 'tool_result')) return []
   return content
@@ -159,7 +172,7 @@ function toolResultMessages(content: string | ContentBlockParam[]): ModelMessage
         {
           type: 'tool-result' as const,
           toolCallId: block.tool_use_id,
-          toolName: 'tool',
+          toolName: toolNames.get(block.tool_use_id) ?? block.tool_use_id,
           output: {
             type: 'text' as const,
             value:
@@ -172,20 +185,6 @@ function toolResultMessages(content: string | ContentBlockParam[]): ModelMessage
     }))
 }
 
-function lastText(turns: ChatTurn[]): string {
-  return turns
-    .slice(-4)
-    .map(turn => {
-      if (typeof turn.content === 'string') return turn.content
-      return turn.content
-        .filter(block => block.type === 'text' || block.type === 'tool_result')
-        .map(block => (block.type === 'text' ? block.text : JSON.stringify(block.content ?? '')))
-        .join('\n')
-    })
-    .join('\n')
-    .slice(0, 4000)
-}
-
 function hasImage(messages: (UserMessage | AssistantMessage)[]): boolean {
   return messages.some(message => {
     const content = message.type === 'user' ? message.message.content : message.message.content
@@ -193,15 +192,27 @@ function hasImage(messages: (UserMessage | AssistantMessage)[]): boolean {
   })
 }
 
+async function toolDescription(item: Tool): Promise<string> {
+  const parts: string[] = []
+  try {
+    const described = await item.description()
+    if (described && described !== item.name) parts.push(described)
+  } catch {
+    // A description that needs the tool input is for the permission dialog.
+  }
+  try {
+    const prompted = await item.prompt()
+    if (prompted && !parts.includes(prompted)) parts.push(prompted)
+  } catch {
+    // The schema description still stands.
+  }
+  return parts.join('\n\n') || item.name
+}
+
 async function toolsFor(tools: Tool[]) {
   const entries = await Promise.all(
     tools.map(async item => {
-      let description = item.name
-      try {
-        description = await item.description()
-      } catch {
-        description = item.name
-      }
+      const description = await toolDescription(item)
       return [
         item.name,
         aiTool({
@@ -241,42 +252,37 @@ async function complete(args: {
   tools: Tool[]
   thinking: false | { budget: number }
   signal: AbortSignal
-}): Promise<ContentBlock[]> {
+  onPartial?: (message: AssistantMessage) => void
+}): Promise<{ blocks: ContentBlock[]; usage?: LanguageModelUsage; id: string }> {
   const toolMap = args.tools.length ? await toolsFor(args.tools) : undefined
-  const call = (turns: ChatTurn[]) =>
-    streamText({
-      model: modelFor(args.kind, args.modelId, args.baseURL, args.apiKey),
-      system: args.system,
-      messages: toModelMessages(turns),
-      tools: toolMap,
-      abortSignal: args.signal,
-      ...(args.thinking
-        ? {
-            providerOptions: {
-              anthropic: {
-                thinking: { type: 'enabled', budgetTokens: args.thinking.budget },
-              },
+  const id = randomUUID()
+  const result = streamText({
+    model: modelFor(args.kind, args.modelId, args.baseURL, args.apiKey),
+    system: args.system,
+    messages: toModelMessages(args.turns),
+    tools: toolMap,
+    abortSignal: args.signal,
+    ...(args.thinking
+      ? {
+          providerOptions: {
+            anthropic: {
+              thinking: { type: 'enabled', budgetTokens: args.thinking.budget },
             },
-          }
-        : {}),
-    })
+          },
+        }
+      : {}),
+  })
 
-  let result = call(args.turns)
-  try {
-    await result.text
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (!/tool|message|unsupported|invalid/i.test(message)) throw error
-    const summary = lastText(args.turns)
-    result = call([
-      {
-        role: 'user',
-        content: `Continue the same thread from this summary of the latest tool results.\n${summary}`,
-      },
-    ])
+  let text = ''
+  if (args.onPartial) {
+    for await (const delta of result.textStream) {
+      text += delta
+      if (!text) continue
+      args.onPartial(assistantFrom(args.modelId, [{ type: 'text', text, citations: [] }], { id }))
+    }
+  } else {
+    text = await result.text
   }
-
-  const text = await result.text
   const toolCalls = await result.toolCalls
   let reasoning = ''
   try {
@@ -284,6 +290,7 @@ async function complete(args: {
   } catch {
     reasoning = ''
   }
+  const usage = await result.usage
   const blocks: ContentBlock[] = []
   if (args.thinking && reasoning) {
     blocks.push({ type: 'thinking', thinking: reasoning })
@@ -297,7 +304,7 @@ async function complete(args: {
       input: (call.input ?? {}) as { [key: string]: unknown },
     })
   }
-  return blocks
+  return { blocks, usage, id }
 }
 
 export async function queryModel(
@@ -310,6 +317,7 @@ export async function queryModel(
     dangerouslySkipPermissions: boolean
     model: string
     prependCLISysprompt: boolean
+    onPartial?: (message: AssistantMessage) => void
   },
 ): Promise<AssistantMessage> {
   const started = Date.now()
@@ -326,7 +334,7 @@ export async function queryModel(
         const excerpt = skillExcerpt(skill)
         if (excerpt) system += `\n\nFollow this skill when it applies:\n${excerpt}`
       }
-      const blocks = await complete({
+      const completed = await complete({
         kind: provider.kind,
         modelId: options.model || provider.model,
         baseURL: provider.baseURL,
@@ -336,11 +344,13 @@ export async function queryModel(
         tools,
         thinking,
         signal,
+        onPartial: options.onPartial,
       })
-      const message = assistantFrom(options.model || provider.model, blocks, {
+      return assistantFrom(options.model || provider.model, completed.blocks, {
         durationMs: Date.now() - started,
+        id: completed.id,
+        usage: completed.usage,
       })
-      return message
     }
 
     if (!provider.nvidiaApiKey) {
@@ -364,7 +374,7 @@ export async function queryModel(
       const excerpt = skillExcerpt(skill)
       if (excerpt) system += `\n\nFollow this skill when it applies:\n${excerpt}`
     }
-    const blocks = await complete({
+    const completed = await complete({
       kind: 'free',
       modelId: choice.apiModel,
       baseURL: 'https://integrate.api.nvidia.com/v1',
@@ -374,8 +384,13 @@ export async function queryModel(
       tools,
       thinking: false,
       signal,
+      onPartial: options.onPartial,
     })
-    return assistantFrom(choice.id, blocks, { durationMs: Date.now() - started })
+    return assistantFrom(choice.id, completed.blocks, {
+      durationMs: Date.now() - started,
+      id: completed.id,
+      usage: completed.usage,
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return textMessage(provider.model, `${API_ERROR_MESSAGE_PREFIX}: ${message}`, true)
@@ -425,7 +440,7 @@ export async function queryFast({
     if (provider.kind === 'free') {
       await ensureLocalServer()
       const chat = localChat(userPrompt)
-      const blocks = await complete({
+      const completed = await complete({
         kind: 'free',
         modelId: 'qwen3-0.6b',
         baseURL: provider.localBaseURL,
@@ -436,9 +451,13 @@ export async function queryFast({
         thinking: false,
         signal: signal ?? new AbortController().signal,
       })
-      return assistantFrom('qwen3-0.6b', blocks, { durationMs: Date.now() - started })
+      return assistantFrom('qwen3-0.6b', completed.blocks, {
+        durationMs: Date.now() - started,
+        id: completed.id,
+        usage: completed.usage,
+      })
     }
-    const blocks = await complete({
+    const completed = await complete({
       kind: provider.kind,
       modelId: provider.fastModel,
       baseURL: provider.baseURL,
@@ -449,7 +468,11 @@ export async function queryFast({
       thinking: false,
       signal: signal ?? new AbortController().signal,
     })
-    return assistantFrom(provider.fastModel, blocks, { durationMs: Date.now() - started })
+    return assistantFrom(provider.fastModel, completed.blocks, {
+      durationMs: Date.now() - started,
+      id: completed.id,
+      usage: completed.usage,
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return textMessage(provider.fastModel, `${API_ERROR_MESSAGE_PREFIX}: ${message}`, true)

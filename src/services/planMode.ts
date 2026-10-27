@@ -18,10 +18,9 @@ export function subscribePlanMode(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
-const PLAN_BLOCKED = new Set(['dispatch_agent', 'Architect', 'ExitPlanMode'])
+const PLAN_BLOCKED = new Set(['Agent', 'Architect', 'ExitPlanMode'])
 
 const READONLY_BINARIES = new Set([
-  'awk',
   'basename',
   'cat',
   'cut',
@@ -40,7 +39,6 @@ const READONLY_BINARIES = new Set([
   'pwd',
   'realpath',
   'rg',
-  'sed',
   'sort',
   'stat',
   'tail',
@@ -52,6 +50,8 @@ const READONLY_BINARIES = new Set([
   'which',
   'whoami',
 ])
+
+const PLAN_SELF_GUARDED = new Set(['Sql', 'Lsp', 'GitHub'])
 
 const GIT_READONLY = new Set([
   'blame',
@@ -75,7 +75,6 @@ export function isPlanModeReadOnlyCommand(command: string): boolean {
     const tokens = segment.trim().split(/\s+/).filter(Boolean)
     const bin = tokens[0]!.split('/').pop()!
     if (bin === 'git') return !!tokens[1] && GIT_READONLY.has(tokens[1])
-    if (bin === 'sed' && tokens.includes('-i')) return false
     if (
       bin === 'find' &&
       tokens.some(token =>
@@ -94,6 +93,7 @@ export function toolsForPlanMode<T extends PlanTool>(all: T[], exitPlanTool: T):
   const allowed = all.filter(tool => {
     if (PLAN_BLOCKED.has(tool.name)) return false
     if (tool.name === 'Bash') return true
+    if (PLAN_SELF_GUARDED.has(tool.name)) return true
     return tool.isReadOnly()
   })
   return [...allowed, exitPlanTool]

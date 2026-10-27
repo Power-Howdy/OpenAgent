@@ -13,7 +13,7 @@ import {
 } from './utils/config.js'
 import { AbortError } from './utils/errors.js'
 import { logError } from './utils/log.js'
-import { grantWritePermissionForOriginalDir } from './utils/permissions/filesystem.js'
+import { grantWritePermissionForPath } from './utils/permissions/filesystem.js'
 import { getCwd } from './utils/state.js'
 import { isPlanModeReadOnlyCommand } from './services/planMode.js'
 import {
@@ -250,7 +250,8 @@ export async function savePermission(
     tool === FileWriteTool ||
     tool === NotebookEditTool
   ) {
-    grantWritePermissionForOriginalDir()
+    const path = String(input.file_path ?? input.notebook_path ?? '')
+    if (path) grantWritePermissionForPath(path)
     return
   }
 
@@ -293,7 +294,7 @@ function permissionSubject(
     tool.name === 'WebSearch' ||
     tool.name === 'WebFetch' ||
     tool.name === 'Docs' ||
-    tool.isReadOnly()
+    tool.isReadOnly(input)
   ) {
     return 'readOnly'
   }

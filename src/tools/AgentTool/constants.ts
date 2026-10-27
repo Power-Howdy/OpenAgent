@@ -1,1 +1,1 @@
-export const TOOL_NAME = 'dispatch_agent'
+export const TOOL_NAME = 'Agent'

@@ -53,7 +53,7 @@ export type Tool<Input extends z.ZodType = z.ZodType, Output = any> = {
   inputJSONSchema?: Record<string, unknown>
   description: (...args: any[]) => Promise<string> | string
   prompt: (...args: any[]) => Promise<string> | string
-  isReadOnly: () => boolean
+  isReadOnly: (input?: any) => boolean
   isEnabled?: () => Promise<boolean> | boolean
   userFacingName?: (...args: any[]) => string
   needsPermissions?: (input?: any) => boolean

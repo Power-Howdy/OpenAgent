@@ -18,7 +18,7 @@ import { openBrowser } from '../utils/browser.js'
 import { useExitOnCtrlCD } from '../hooks/useExitOnCtrlCD.js'
 
 const GITHUB_ISSUES_REPO_URL =
-  'https://github.com/anthropics/OpenAgent-code/issues'
+  'https://github.com/power-howdy/openagent/issues'
 
 type Props = {
   onDone(result: string): void

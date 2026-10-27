@@ -21,7 +21,7 @@ export const SqlTool = {
   description: async () => 'Run a SQL statement against a local sqlite file or a host database client.',
   prompt: async () => 'Query sqlite read-only unless write is true. Postgres and MySQL use the host client.',
   inputSchema,
-  isReadOnly: () => true,
+  isReadOnly: (input?: { write?: boolean }) => input != null && input.write !== true,
   isEnabled() {
     return true
   },
@@ -29,7 +29,7 @@ export const SqlTool = {
   async *call(input: z.infer<typeof inputSchema>) {
     if (input.write && isPlanMode()) {
       const text = 'Plan mode only allows read-only SQL.'
-      yield { type: 'result' as const, data: text, resultForAssistant: text }
+      yield { type: 'result' as const, data: text, resultForAssistant: text, isError: true }
       return
     }
     const text = await query(input).catch(error => error instanceof Error ? error.message : String(error))

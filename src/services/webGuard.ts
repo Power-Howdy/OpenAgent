@@ -1,5 +1,7 @@
-import { isIP } from 'net'
 import { lookup } from 'dns/promises'
+import { request as httpRequest } from 'http'
+import { request as httpsRequest, type RequestOptions } from 'https'
+import { isIP } from 'net'
 
 export type SearchHit = { title: string; url: string; content: string }
 
@@ -77,26 +79,95 @@ export function isBlockedFetchAddress(address: string): boolean {
 }
 
 export async function assertFetchUrl(raw: string): Promise<URL> {
-  return assertUrl(raw, isBlockedFetchAddress)
+  return (await resolvePinnedUrl(raw, isBlockedFetchAddress)).url
 }
 
 export async function assertHttpUrl(raw: string): Promise<URL> {
-  return assertUrl(raw, isBlockedHttpAddress)
+  return (await resolvePinnedUrl(raw, isBlockedHttpAddress)).url
 }
 
-async function assertUrl(raw: string, blocked: (address: string) => boolean): Promise<URL> {
+export function pinnedRequestOptions(
+  url: URL,
+  address: string,
+  init: RequestInit,
+): RequestOptions {
+  const headers = headerRecord(init.headers)
+  headers.host = url.host
+  return {
+    host: address,
+    servername: url.hostname,
+    port: Number(url.port) || (url.protocol === 'https:' ? 443 : 80),
+    path: `${url.pathname}${url.search}`,
+    method: init.method ?? 'GET',
+    headers,
+  }
+}
+
+function headerRecord(headers: HeadersInit | undefined): Record<string, string> {
+  if (!headers) return {}
+  if (headers instanceof Headers) {
+    const out: Record<string, string> = {}
+    headers.forEach((value, key) => {
+      out[key] = value
+    })
+    return out
+  }
+  if (Array.isArray(headers)) return Object.fromEntries(headers)
+  return { ...headers }
+}
+
+async function resolvePinnedUrl(
+  raw: string,
+  blocked: (address: string) => boolean,
+): Promise<{ url: URL; address: string }> {
   const url = new URL(raw)
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error('Only http and https URLs are allowed')
   }
   const host = url.hostname.replace(/^\[|\]$/g, '')
   if (blocked(host)) throw new Error('That address is blocked')
-  if (isIP(host)) return url
+  if (isIP(host)) return { url, address: unwrap(host) }
   const records = await lookup(host, { all: true })
   for (const record of records) {
     if (blocked(record.address)) throw new Error('That address is blocked')
   }
-  return url
+  const address = records[0]?.address
+  if (!address) throw new Error('That address is blocked')
+  return { url, address }
+}
+
+function pinnedFetch(url: URL, address: string, init: RequestInit): Promise<Response> {
+  const options = pinnedRequestOptions(url, address, init)
+  const send = url.protocol === 'https:' ? httpsRequest : httpRequest
+  return new Promise((resolve, reject) => {
+    const req = send(options, response => {
+      const chunks: Buffer[] = []
+      response.on('data', chunk => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+      })
+      response.on('end', () => {
+        const headers = new Headers()
+        for (const [key, value] of Object.entries(response.headers)) {
+          if (typeof value === 'string') headers.set(key, value)
+          else if (Array.isArray(value)) headers.set(key, value.join(', '))
+        }
+        resolve(new Response(Buffer.concat(chunks), {
+          status: response.statusCode ?? 500,
+          headers,
+        }))
+      })
+    })
+    const fail = (error: unknown) => reject(error instanceof Error ? error : new Error(String(error)))
+    req.on('error', fail)
+    if (init.signal) {
+      const abort = () => req.destroy(new Error('This operation was aborted'))
+      if (init.signal.aborted) abort()
+      else init.signal.addEventListener('abort', abort, { once: true })
+    }
+    if (typeof init.body === 'string') req.write(init.body)
+    else if (Buffer.isBuffer(init.body)) req.write(init.body)
+    req.end()
+  })
 }
 
 export async function guardedFetch(
@@ -106,14 +177,14 @@ export async function guardedFetch(
   allow?: (url: URL) => boolean,
 ): Promise<Response> {
   const blocked = mode === 'public' ? isBlockedFetchAddress : isBlockedHttpAddress
-  let current = await assertUrl(raw, blocked)
+  let current = await resolvePinnedUrl(raw, blocked)
   for (let hop = 0; hop < 4; hop++) {
-    if (allow && !allow(current)) throw new Error('Offline mode is on')
-    const response = await fetch(current, { ...init, redirect: 'manual' })
+    if (allow && !allow(current.url)) throw new Error('Offline mode is on')
+    const response = await pinnedFetch(current.url, current.address, init)
     if (response.status < 300 || response.status >= 400) return response
     const location = response.headers.get('location')
     if (!location) throw new Error('Redirect was blocked')
-    current = await assertUrl(new URL(location, current).toString(), blocked)
+    current = await resolvePinnedUrl(new URL(location, current.url).toString(), blocked)
   }
   throw new Error('Redirect was blocked')
 }

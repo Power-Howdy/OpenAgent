@@ -6,7 +6,15 @@ import { z } from 'zod'
 import { FallbackToolUseRejectedMessage } from '../../components/FallbackToolUseRejectedMessage.js'
 import { Tool } from '../../Tool.js'
 import { MEMORY_DIR } from '../../utils/env.js'
+import { isPathInside } from '../../utils/permissions/filesystem.js'
 import { DESCRIPTION, PROMPT } from './prompt.js'
+
+function memoryPath(filePath: string): string | null {
+  if (!filePath || filePath.includes('\0')) return null
+  const fullPath = join(MEMORY_DIR, filePath)
+  if (!isPathInside(MEMORY_DIR, fullPath)) return null
+  return fullPath
+}
 
 const inputSchema = z.strictObject({
   file_path: z.string().describe('Path to the memory file to write'),
@@ -32,7 +40,7 @@ export const MemoryWriteTool = {
     return false
   },
   needsPermissions() {
-    return false
+    return true
   },
   renderResultForAssistant(content) {
     return content
@@ -55,14 +63,22 @@ export const MemoryWriteTool = {
     )
   },
   async validateInput({ file_path }) {
-    const fullPath = join(MEMORY_DIR, file_path)
-    if (!fullPath.startsWith(MEMORY_DIR)) {
+    if (!memoryPath(file_path)) {
       return { result: false, message: 'Invalid memory file path' }
     }
     return { result: true }
   },
   async *call({ file_path, content }) {
-    const fullPath = join(MEMORY_DIR, file_path)
+    const fullPath = memoryPath(file_path)
+    if (!fullPath) {
+      yield {
+        type: 'result',
+        data: 'Invalid memory file path',
+        resultForAssistant: 'Invalid memory file path',
+        isError: true,
+      }
+      return
+    }
     mkdirSync(dirname(fullPath), { recursive: true })
     writeFileSync(fullPath, content, 'utf-8')
     yield {

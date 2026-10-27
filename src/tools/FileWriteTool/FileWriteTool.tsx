@@ -40,7 +40,7 @@ const inputSchema = z.strictObject({
 })
 
 export const FileWriteTool = {
-  name: 'Replace',
+  name: 'Write',
   async description() {
     return 'Write a file to the local filesystem.'
   },

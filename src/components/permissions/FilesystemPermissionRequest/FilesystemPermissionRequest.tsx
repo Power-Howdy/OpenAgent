@@ -27,7 +27,7 @@ import { NotebookEditTool } from '../../../tools/NotebookEditTool/NotebookEditTo
 import { NotebookReadTool } from '../../../tools/NotebookReadTool/NotebookReadTool.js'
 import { FallbackPermissionRequest } from '../FallbackPermissionRequest.js'
 import {
-  grantWritePermissionForOriginalDir,
+  grantWritePermissionForPath,
   pathInOriginalCwd,
   toAbsolutePath,
 } from '../../../utils/permissions/filesystem.js'
@@ -104,7 +104,7 @@ export function FilesystemPermissionRequest({
 }
 
 function getDontAskAgainOptions(toolUseConfirm: ToolUseConfirm, path: string) {
-  if (toolUseConfirm.tool.isReadOnly()) {
+  if (toolUseConfirm.tool.isReadOnly(toolUseConfirm.input)) {
     // "Always allow" is not an option for read-only tools,
     // because they always have write permission in the project directory.
     return []
@@ -113,7 +113,7 @@ function getDontAskAgainOptions(toolUseConfirm: ToolUseConfirm, path: string) {
   return pathInOriginalCwd(path)
     ? [
         {
-          label: "Yes, and don't ask again for file edits this session",
+          label: "Yes, and don't ask again for this file this session",
           value: 'yes-dont-ask-again',
         },
       ]
@@ -137,7 +137,7 @@ function FilesystemPermissionRequestImpl({
     toolUseConfirm.input as never,
   )
 
-  const userFacingReadOrWrite = toolUseConfirm.tool.isReadOnly()
+  const userFacingReadOrWrite = toolUseConfirm.tool.isReadOnly(toolUseConfirm.input)
     ? 'Read'
     : 'Edit'
   const title = `${userFacingReadOrWrite} ${isMultiFile(toolUseConfirm) ? 'files' : 'file'}`
@@ -216,7 +216,7 @@ function FilesystemPermissionRequestImpl({
                     platform: env.platform,
                   },
                 })
-                grantWritePermissionForOriginalDir()
+                grantWritePermissionForPath(path)
                 toolUseConfirm.onAllow('permanent')
                 onDone()
                 break

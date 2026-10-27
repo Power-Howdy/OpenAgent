@@ -27,7 +27,7 @@ export const BANNED_COMMANDS = [
   'safari',
 ]
 
-export const PROMPT = `Executes a given bash command in a persistent shell session with optional timeout, ensuring proper handling and security measures.
+export const PROMPT = `Executes a given bash command. Inspection commands can use the persistent host shell. Commands that change the system run in the sandbox when \`openagent setup\` has been run. git, npm, and the other project toolchains stay on the host. Set isolated to true to force the sandbox.
 
 Before executing the command, please follow these steps:
 

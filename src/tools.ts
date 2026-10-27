@@ -40,8 +40,6 @@ import { TodoReadTool, TodoWriteTool } from './tools/TodoWrite/TodoWrite.js'
 import { DocsTool, WebFetchTool } from './tools/WebFetch/WebFetch.js'
 import { WebSearchTool } from './tools/WebSearch/WebSearch.js'
 import { getMCPTools } from './services/mcpClient.js'
-import { memoize } from 'lodash-es'
-
 export const getAllTools = (): Tool[] => {
   return [
     AgentTool,
@@ -83,22 +81,20 @@ export const getAllTools = (): Tool[] => {
   ]
 }
 
-export const getTools = memoize(
-  async (enableArchitect?: boolean): Promise<Tool[]> => {
-    const tools = [...getAllTools(), ...pluginTools(), ...(await getMCPTools())]
+export async function getTools(enableArchitect?: boolean): Promise<Tool[]> {
+  const tools = [...getAllTools(), ...pluginTools(), ...(await getMCPTools())]
 
-    // Only include Architect tool if enabled via config or CLI flag
-    if (enableArchitect) {
-      tools.push(ArchitectTool)
-    }
+  // Only include Architect tool if enabled via config or CLI flag
+  if (enableArchitect) {
+    tools.push(ArchitectTool)
+  }
 
-    const isEnabled = await Promise.all(tools.map(tool => tool.isEnabled?.() ?? true))
-    return tools.filter((_, i) => isEnabled[i])
-  },
-)
+  const isEnabled = await Promise.all(tools.map(tool => tool.isEnabled?.() ?? true))
+  return tools.filter((_, i) => isEnabled[i])
+}
 
-export const getReadOnlyTools = memoize(async (): Promise<Tool[]> => {
+export async function getReadOnlyTools(): Promise<Tool[]> {
   const tools = getAllTools().filter(tool => tool.isReadOnly())
   const isEnabled = await Promise.all(tools.map(tool => tool.isEnabled?.() ?? true))
   return tools.filter((_, index) => isEnabled[index])
-})
+}

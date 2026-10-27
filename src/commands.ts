@@ -19,6 +19,7 @@ import pr_comments from './commands/pr_comments.js'
 import releaseNotes from './commands/release-notes.js'
 import review from './commands/review.js'
 import terminalSetup from './commands/terminalSetup.js'
+import undo from './commands/undo.js'
 import { Tool, ToolUseContext } from './Tool.js'
 import resume from './commands/resume.js'
 import { getMCPCommands } from './services/mcpClient.js'
@@ -80,6 +81,7 @@ const COMMANDS = memoize((): Command[] => [
   bug,
   review,
   terminalSetup,
+  undo,
   login(),
   ...(process.env.USER_TYPE === 'ant' ? INTERNAL_ONLY_COMMANDS : []),
 ])

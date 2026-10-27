@@ -1,5 +1,6 @@
 import { memoize } from 'lodash-es'
 import { API_ERROR_MESSAGE_PREFIX, queryHaiku } from '../services/OpenAgent.js'
+import { resolveProvider } from '../services/resolveProvider.js'
 import { type ControlOperator, parse, ParseEntry } from 'shell-quote'
 import { PRODUCT_NAME } from '../constants/product.js'
 
@@ -110,11 +111,31 @@ export const getCommandSubcommandPrefix = memoize(
   command => command, // memoize by command only
 )
 
+export function canClassifyCommands(kind: string): boolean {
+  return kind === 'anthropic' || kind === 'openai' || kind === 'compatible'
+}
+
+export function acceptCommandPrefix(raw: string): CommandPrefixResult | null {
+  const prefix = raw.trim()
+  if (!prefix || prefix.includes('\n')) return null
+  if (prefix === 'command_injection_detected') {
+    return { commandInjectionDetected: true }
+  }
+  if (prefix === 'git' || prefix === 'none') {
+    return { commandPrefix: null, commandInjectionDetected: false }
+  }
+  if (/^(the|prefix|command)\b/i.test(prefix)) return null
+  if (prefix.split(/\s+/).length > 4) return null
+  if (!/^[a-z0-9][a-z0-9_ ./+-]{0,80}$/i.test(prefix)) return null
+  return { commandPrefix: prefix, commandInjectionDetected: false }
+}
+
 const getCommandPrefix = memoize(
   async (
     command: string,
     abortSignal: AbortSignal,
   ): Promise<CommandPrefixResult | null> => {
+    if (!canClassifyCommands(resolveProvider().kind)) return null
     const response = await queryHaiku({
       systemPrompt: [
         `Your task is to process Bash commands that an AI coding agent wants to run.
@@ -190,29 +211,7 @@ Command: ${command}
       return null
     }
 
-    if (prefix === 'command_injection_detected') {
-      return { commandInjectionDetected: true }
-    }
-
-    // Never accept base `git` as a prefix (if e.g. `git diff` prefix not detected)
-    if (prefix === 'git') {
-      return {
-        commandPrefix: null,
-        commandInjectionDetected: false,
-      }
-    }
-
-    if (prefix === 'none') {
-      return {
-        commandPrefix: null,
-        commandInjectionDetected: false,
-      }
-    }
-
-    return {
-      commandPrefix: prefix,
-      commandInjectionDetected: false,
-    }
+    return acceptCommandPrefix(prefix)
   },
   command => command, // memoize by command only
 )

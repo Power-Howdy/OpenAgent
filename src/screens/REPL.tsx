@@ -86,6 +86,16 @@ export type BinaryFeedbackContext = {
   resolve: (result: BinaryFeedbackResult) => void
 }
 
+function upsertMessage(oldMessages: MessageType[], message: MessageType): MessageType[] {
+  const index = oldMessages.findIndex(
+    item => item.uuid === message.uuid && item.type === message.type,
+  )
+  if (index === -1) return [...oldMessages, message]
+  const next = oldMessages.slice()
+  next[index] = message
+  return next
+}
+
 export function REPL({
   commands,
   dangerouslySkipPermissions,
@@ -281,6 +291,12 @@ export function REPL({
             verbose,
             dangerouslySkipPermissions,
             maxThinkingTokens,
+            onAssistantPartial: (partial: AssistantMessage) => {
+              setMessages(old => upsertMessage(old, partial))
+            },
+            onReplaceMessages: (next: MessageType[]) => {
+              setMessages(next)
+            },
           },
           messageId: getLastAssistantMessageId([...messages, ...newMessages]),
           readFileTimestamps: readFileTimestamps.current,
@@ -289,7 +305,7 @@ export function REPL({
         },
         getBinaryFeedbackResponse,
       )) {
-        setMessages(oldMessages => [...oldMessages, message])
+        setMessages(oldMessages => upsertMessage(oldMessages, message))
       }
     } else {
       addToHistory(initialPrompt)
@@ -354,6 +370,12 @@ export function REPL({
           verbose,
           dangerouslySkipPermissions,
           maxThinkingTokens,
+          onAssistantPartial: (partial: AssistantMessage) => {
+            setMessages(old => upsertMessage(old, partial))
+          },
+          onReplaceMessages: (next: MessageType[]) => {
+            setMessages(next)
+          },
         },
         messageId: getLastAssistantMessageId([...messages, lastMessage]),
         readFileTimestamps: readFileTimestamps.current,
@@ -362,7 +384,7 @@ export function REPL({
       },
       getBinaryFeedbackResponse,
     )) {
-      setMessages(oldMessages => [...oldMessages, message])
+      setMessages(oldMessages => upsertMessage(oldMessages, message))
     }
     setIsLoading(false)
   }

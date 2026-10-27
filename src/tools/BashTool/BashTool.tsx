@@ -11,6 +11,8 @@ import { splitCommand } from '../../utils/commands.js'
 import { isInDirectory } from '../../utils/file.js'
 import { logError } from '../../utils/log.js'
 import { PersistentShell } from '../../utils/PersistentShell.js'
+import { shouldUseSandbox } from '../../services/projectCommands.js'
+import { redactSecrets } from '../../services/redact.js'
 import { runInSandbox, safeSessionName, sandboxReady, SETUP_HINT } from '../../services/runtime.js'
 import { getCwd, getOriginalCwd } from '../../utils/state.js'
 import BashToolResultMessage from './BashToolResultMessage.js'
@@ -43,7 +45,11 @@ export type Out = {
 
 export const BashTool = {
   name: 'Bash',
-  async description({ command }) {
+  async description(input?: { command?: string }) {
+    const command = input?.command
+    if (!command) {
+      return 'Execute a shell command. Inspection commands can run on the host. Other commands run in the sandbox when it is available. Project toolchain commands such as git and npm stay on the host.'
+    }
     try {
       const result = await queryHaiku({
         systemPrompt: [
@@ -172,7 +178,8 @@ export const BashTool = {
     let stderr = ''
 
     let interrupted = false
-    if (isolated) {
+    const isolate = shouldUseSandbox(command, isolated, await sandboxReady())
+    if (isolate) {
       if (!(await sandboxReady())) {
         stderr = SETUP_HINT
       } else {
@@ -212,7 +219,10 @@ export const BashTool = {
       }
     }
 
-    if (!isolated && process.env.NODE_ENV !== 'test') {
+    stdout = redactSecrets(stdout)
+    stderr = redactSecrets(stderr)
+
+    if (!isolate && process.env.NODE_ENV !== 'test') {
       getCommandFilePaths(command, stdout).then(filePaths => {
         for (const filePath of filePaths) {
           const fullFilePath = isAbsolute(filePath)

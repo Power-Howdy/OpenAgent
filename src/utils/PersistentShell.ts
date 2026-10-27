@@ -6,6 +6,7 @@ import { spawn, execSync, type ChildProcess } from 'child_process'
 import { isAbsolute, resolve, join } from 'path'
 import { logError } from './log.js'
 import * as os from 'os'
+import { scrubbedEnv } from '../services/redact.js'
 import { logEvent } from '../services/statsig.js'
 
 type ExecResult = {
@@ -55,7 +56,7 @@ export class PersistentShell {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd,
       env: {
-        ...process.env,
+        ...scrubbedEnv(),
         GIT_EDITOR: 'true',
       },
     })

@@ -56,7 +56,7 @@ const inputSchema = z.strictObject({
 })
 
 export const FileReadTool = {
-  name: 'View',
+  name: 'Read',
   async description() {
     return DESCRIPTION
   },
