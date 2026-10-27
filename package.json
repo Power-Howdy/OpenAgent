@@ -37,7 +37,9 @@
     "setup": "tsx src/commands/setup.ts",
     "typecheck": "tsc --noEmit",
     "test": "c8 --check-coverage node --import tsx --test test/*.test.ts",
-    "test:coverage": "c8 --check-coverage node --import tsx --test test/*.test.ts"
+    "test:coverage": "c8 --check-coverage node --import tsx --test test/*.test.ts",
+    "experiment:benchmark": "tsx docs/experiments/benchmark.ts",
+    "experiment:free-mode": "tsx docs/experiments/free-mode.ts"
   },
   "engines": {
     "node": ">=22"
@@ -101,6 +103,7 @@
       "src/services/capabilities.ts",
       "src/services/chatShape.ts",
       "src/services/freeRouter.ts",
+      "src/services/hostEnv.ts",
       "src/services/match.ts",
       "src/services/mcpConfig.ts",
       "src/services/permissionMode.ts",
@@ -108,6 +111,7 @@
       "src/services/resolveProvider.ts",
       "src/services/sentry.ts",
       "src/services/skillStore.ts",
+      "src/services/streamRecovery.ts",
       "src/services/statsig.ts",
       "src/services/threadContext.ts"
     ]

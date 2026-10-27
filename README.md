@@ -35,9 +35,14 @@ The first configured paid key selects the provider:
 
 Flags `--provider`, `--model`, and `--base-url` override that for one process.
 
+Popular models (2025-2026):
+- Anthropic: `claude-3-7-sonnet-20250219`, `claude-3-5-haiku-20241022`
+- OpenAI: `gpt-4o`, `gpt-4o-mini`, `o1`
+- NVIDIA NIM: `nvidia/nemotron-3-ultra-550b-a55b`, `nvidia/nemotron-3.5-super-vl-120b-a12b`, `deepseek-ai/deepseek-v4.1-flash`
+
 With no paid key, OpenAgent uses free mode. Important work goes to NVIDIA NIM (`https://integrate.api.nvidia.com/v1`) when a NIM key is set. Use `NVIDIA_API_KEY`, `--nvidia-api-key`, or `openagent config set -g nvidiaApiKey <key>`. Calls spread across capable models so one task stays under the free-tier request window. Thinking is off in free mode, so usage is a request count.
 
-The local model is Qwen3-0.6B Q4. Its OpenAI-compatible endpoint defaults to `http://127.0.0.1:8080/v1`. Change it with `--local-base-url`, `OPENAGENT_LOCAL_BASE_URL`, or `openagent config set -g localBaseURL http://127.0.0.1:8080/v1`. Every local call is a new chat. It is used for bookkeeping such as command descriptions. It does not continue the agent thread. If NIM has no key, or every NIM model is cooling, the thread waits or stops with that reason.
+The local model defaults to Qwen3-0.6B Q4. Its OpenAI-compatible endpoint defaults to `http://127.0.0.1:8080/v1`. Change it with `--local-base-url`, `OPENAGENT_LOCAL_BASE_URL`, or `openagent config set -g localBaseURL http://127.0.0.1:8080/v1`. Every local call is a new chat. It is used for bookkeeping such as command descriptions. It does not continue the agent thread. If NIM has no key, or every NIM model is cooling, the thread waits or stops with that reason.
 
 ## Memory and stores
 

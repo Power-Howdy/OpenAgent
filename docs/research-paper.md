@@ -23,11 +23,11 @@ OpenAgent is a permission-gated terminal coding agent that supports multiple LLM
 ## Citation
 
 ```bibtex
-@software{openagent2024,
+@software{openagent2026,
   title = {OpenAgent: A Multi-Provider Terminal Coding Agent},
   author = {OpenAgent Contributors},
-  year = {2024},
-  url = {https://github.com/severus/openagent}
+  year = {2026},
+  url = {https://github.com/power-howdy/openagent}
 }
 ```
 

@@ -727,11 +727,12 @@ ${commandList}`,
 
   program
     .command('setup')
-    .description('Build the sandbox image and start SearXNG')
+    .description('Install Docker if needed, build the sandbox image, and start SearXNG')
     .option('--lang <langs>', 'Languages to install: ts,py,go,rust', 'ts,py')
-    .action(async (options: { lang?: string }) => {
+    .option('--yes', 'Install and start missing dependencies without asking')
+    .action(async (options: { lang?: string; yes?: boolean }) => {
       try {
-        await setupCommand(['--lang', options.lang ?? 'ts,py'])
+        await setupCommand(['--lang', options.lang ?? 'ts,py', ...(options.yes ? ['--yes'] : [])])
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error))
         process.exit(1)
@@ -1057,6 +1058,14 @@ async function stdin() {
   for await (const chunk of process.stdin) data += chunk
   return data
 }
+
+process.on('unhandledRejection', error => {
+  logError(error)
+})
+
+process.on('uncaughtException', error => {
+  logError(error)
+})
 
 process.on('exit', () => {
   resetCursor()

@@ -329,23 +329,32 @@ async function getMessagesForSlashCommand(
     switch (command.type) {
       case 'local-jsx': {
         return new Promise(resolve => {
-          command
-            .call(r => {
-              setToolJSX(null)
-              resolve([
-                createUserMessage(`<command-name>${command.userFacingName()}</command-name>
+          let settled = false
+          const finish = (result?: string) => {
+            if (settled) return
+            settled = true
+            setToolJSX(null)
+            resolve([
+              createUserMessage(`<command-name>${command.userFacingName()}</command-name>
           <command-message>${command.userFacingName()}</command-message>
           <command-args>${args}</command-args>`),
-                r
-                  ? createAssistantMessage(r)
-                  : createAssistantMessage(NO_RESPONSE_REQUESTED),
-              ])
-            }, context)
+              result
+                ? createAssistantMessage(result)
+                : createAssistantMessage(NO_RESPONSE_REQUESTED),
+            ])
+          }
+          command
+            .call(finish, context, args)
             .then(jsx => {
+              if (settled || jsx == null) return
               setToolJSX({
                 jsx,
                 shouldHidePromptInput: true,
               })
+            })
+            .catch(error => {
+              const detail = error instanceof Error ? error.message : String(error)
+              finish(detail)
             })
         })
       }

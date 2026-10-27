@@ -5,6 +5,7 @@ import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { execFileNoThrow } from '../utils/execFileNoThrow.js'
 import { OpenAgent_BASE_DIR } from '../utils/env.js'
+import { ensureDocker } from './dockerSetup.js'
 import { redactSecrets, scrubbedEnv } from './redact.js'
 
 export const SANDBOX_IMAGE = 'openagent-sandbox:local'
@@ -238,16 +239,15 @@ export async function sandboxReady(): Promise<boolean> {
   return result.code === 0
 }
 
-export async function runSetup(langs: string[]): Promise<void> {
+export async function runSetup(langs: string[], options: { yes?: boolean } = {}): Promise<void> {
   const lock = join(OpenAgent_BASE_DIR, 'setup.lock')
   mkdirSync(OpenAgent_BASE_DIR, { recursive: true })
   if (!acquireLock(lock)) throw new Error('openagent setup is already running')
   try {
-    const docker = await spawnImpl('docker', ['info'], 20_000)
-    if (docker.code !== 0) throw new Error('Docker is required')
+    const runDocker = await ensureDocker({ yes: options.yes })
     const selected = langs.length ? langs : ['ts', 'py']
-    const build = await spawnImpl(
-      'docker',
+    console.error(`Building the sandbox image (${selected.join(', ')})…`)
+    const build = await runDocker(
       [
         'build',
         '-t',
@@ -271,14 +271,15 @@ export async function runSetup(langs: string[]): Promise<void> {
     const settings = join(dir, 'settings.yml')
     writeFileSync(settings, renderSearxngSettings(template, secret))
     const version = readFileSync(join(repoRoot, 'docker/searxng/VERSION'), 'utf8').trim()
-    const up = await spawnImpl(
-      'docker',
+    console.error('Starting SearXNG…')
+    const up = await runDocker(
       ['compose', '-p', 'openagent', '-f', join(repoRoot, 'docker/compose.yaml'), 'up', '-d', 'searxng'],
-      120_000,
-      { ...process.env, SEARXNG_VERSION: version, SEARXNG_SETTINGS: settings },
+      180_000,
+      { SEARXNG_VERSION: version, SEARXNG_SETTINGS: settings },
     )
     if (up.code !== 0) throw new Error(up.stderr || 'SearXNG failed to start')
-    const deadline = Date.now() + 30_000
+    console.error('Waiting for SearXNG…')
+    const deadline = Date.now() + 90_000
     while (Date.now() < deadline) {
       if (await searxngReady()) return
       await new Promise(resolve => setTimeout(resolve, 1000))

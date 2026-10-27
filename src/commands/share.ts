@@ -9,6 +9,7 @@ import { SESSION_ID } from '../utils/log.js'
 const share = {
   type: 'local',
   name: 'share',
+  aliases: ['export'],
   description: 'Write a redacted copy of this thread to a local file',
   isEnabled: true,
   isHidden: false,

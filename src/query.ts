@@ -52,6 +52,7 @@ export type AssistantMessage = {
   type: 'assistant'
   uuid: UUID
   isApiErrorMessage?: boolean
+  incomplete?: boolean
 }
 
 export type BinaryFeedbackResult =
@@ -74,14 +75,17 @@ export type Message = UserMessage | AssistantMessage | ProgressMessage
 const MAX_TOOL_USE_CONCURRENCY = 10
 const MAX_AGENT_TURNS = 32
 const MAX_REPEATED_TOOL_ERRORS = 3
+const MAX_STREAM_CONTINUES = 3
 const COMPACT_INPUT_TOKENS = 80_000
+const CUTOFF_CONTINUE =
+  'The previous response was cut off. Continue the task from the cutoff. Do not repeat work that is already done.'
 
-type LoopState = { turns: number; repeatedError: string; repeats: number }
+type LoopState = { turns: number; repeatedError: string; repeats: number; continues: number }
 
 function loopStateOf(options: ToolUseContext['options']): LoopState {
   const existing = options.loopState as LoopState | undefined
   if (existing) return existing
-  const created: LoopState = { turns: 0, repeatedError: '', repeats: 0 }
+  const created: LoopState = { turns: 0, repeatedError: '', repeats: 0, continues: 0 }
   options.loopState = created
   return created
 }
@@ -207,6 +211,7 @@ export async function* query(
   ) => Promise<BinaryFeedbackResult>,
 ): AsyncGenerator<Message, void> {
   for (;;) {
+  try {
   const options = toolUseContext.options
   const loop = loopStateOf(options)
   loop.turns += 1
@@ -269,10 +274,24 @@ export async function* query(
     _ => _.type === 'tool_use',
   )
 
-  // If there's no more tool use, we're done
+  // A dropped stream keeps the partial reply and asks the model to continue.
   if (!toolUseMessages.length) {
+    if (
+      assistantMessage.incomplete &&
+      !assistantMessage.isApiErrorMessage &&
+      loop.continues < MAX_STREAM_CONTINUES
+    ) {
+      loop.continues += 1
+      messages = [
+        ...messages,
+        assistantMessage,
+        createUserMessage(CUTOFF_CONTINUE),
+      ]
+      continue
+    }
     return
   }
+  loop.continues = 0
 
   const toolResults: UserMessage[] = []
 
@@ -350,6 +369,18 @@ export async function* query(
   }
 
   messages = nextMessages
+  } catch (error) {
+    if (toolUseContext.abortController.signal.aborted) {
+      yield createAssistantMessage(INTERRUPT_MESSAGE)
+      return
+    }
+    logError(error)
+    const detail = error instanceof Error ? error.message : String(error)
+    yield createAssistantMessage(
+      `The turn hit an unexpected error (${detail}). The session is still running.`,
+    )
+    return
+  }
   }
 }
 
