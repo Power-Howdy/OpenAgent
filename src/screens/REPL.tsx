@@ -40,7 +40,7 @@ import type { Tool } from '../Tool.js'
 import { AutoUpdaterResult } from '../utils/autoUpdater.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import { logEvent } from '../services/statsig.js'
-import { getNextAvailableLogForkNumber } from '../utils/log.js'
+import { getNextAvailableLogForkNumber, logError } from '../utils/log.js'
 import {
   getErroredToolUseMessages,
   getInProgressToolUseIDs,
@@ -48,6 +48,7 @@ import {
   getToolUseID,
   getUnresolvedToolUseIDs,
   INTERRUPT_MESSAGE,
+  createAssistantMessage,
   isNotEmptyMessage,
   type NormalizedMessage,
   normalizeMessages,
@@ -60,6 +61,18 @@ import { clearTerminal, updateTerminalTitle } from '../utils/terminal.js'
 import { BinaryFeedback } from '../components/binary-feedback/BinaryFeedback.js'
 import { getMaxThinkingTokens } from '../utils/thinking.js'
 import { getOriginalCwd } from '../utils/state.js'
+
+function keepSession(
+  setMessages: (update: (messages: MessageType[]) => MessageType[]) => void,
+  error: unknown,
+): void {
+  logError(error)
+  const detail = error instanceof Error ? error.message : String(error)
+  setMessages(messages => [
+    ...messages,
+    createAssistantMessage(`The turn failed (${detail}). The session is still running.`),
+  ])
+}
 
 type Props = {
   commands: Command[]
@@ -227,6 +240,7 @@ export function REPL({
     const abortController = new AbortController()
     setAbortController(abortController)
 
+    try {
     const model = await getSlowAndCapableModel()
     const newMessages = await processUserInput(
       initialPrompt,
@@ -264,7 +278,6 @@ export function REPL({
       const lastMessage = newMessages[newMessages.length - 1]!
       if (lastMessage.type === 'assistant') {
         setAbortController(null)
-        setIsLoading(false)
         return
       }
 
@@ -315,8 +328,11 @@ export function REPL({
     setHaveShownCostDialog(
       getGlobalConfig().hasAcknowledgedCostThreshold || false,
     )
-
-    setIsLoading(false)
+    } catch (error) {
+      if (!abortController.signal.aborted) keepSession(setMessages, error)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   async function onQuery(
@@ -344,6 +360,8 @@ export function REPL({
       setIsLoading(false)
       return
     }
+
+    try {
 
     const [systemPrompt, context, model, maxThinkingTokens] = await Promise.all(
       [
@@ -386,7 +404,11 @@ export function REPL({
     )) {
       setMessages(oldMessages => upsertMessage(oldMessages, message))
     }
-    setIsLoading(false)
+    } catch (error) {
+      if (!abortController.signal.aborted) keepSession(setMessages, error)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   // Register cost summary tracker
@@ -407,7 +429,7 @@ export function REPL({
 
   // Initial load
   useEffect(() => {
-    onInit()
+    void onInit().catch(error => keepSession(setMessages, error))
     // TODO: fix this
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

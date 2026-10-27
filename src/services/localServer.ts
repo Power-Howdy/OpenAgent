@@ -2,10 +2,15 @@ import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { localEndpointBind, resolveProvider } from './resolveProvider.js'
 
+import { homedir } from 'os'
+import { join } from 'path'
+
 const DEFAULT_GGUF =
-  '/home/severus/Documents/llm_playground/gguf_models/Qwen3-0.6B-Q4_K_M-imat.gguf'
+  process.env.OPENAGENT_LOCAL_GGUF ??
+  join(homedir(), '.OpenAgent', 'models', 'qwen3-0.6b.gguf')
 const DEFAULT_SERVER =
-  '/home/severus/Documents/llm_playground/llama.cpp/build/bin/llama-server'
+  process.env.OPENAGENT_LLAMA_SERVER ??
+  join(homedir(), '.OpenAgent', 'models', 'llama-server')
 
 let ready: Promise<void> | null = null
 

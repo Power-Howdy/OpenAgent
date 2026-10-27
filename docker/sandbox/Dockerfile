@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
     build-essential \
+    docker.io \
   && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m venv /opt/venv

@@ -6,7 +6,7 @@ import { jsonSchema, streamText, tool as aiTool, type LanguageModelUsage, type M
 import type { Tool } from '../Tool.js'
 import type { AssistantMessage, UserMessage } from '../query.js'
 import type { ContentBlock, ContentBlockParam } from '../types/api.js'
-import { isCapable } from '../models/nim-catalog.js'
+import { NIM_CATALOG, isCapable } from '../models/nim-catalog.js'
 import { loadLedger, recordCall } from './budget.js'
 import { setAuthoring } from './capabilities.js'
 import {
@@ -24,6 +24,12 @@ import {
   type ProviderKind,
 } from './resolveProvider.js'
 import { selectSkill, skillExcerpt } from './skillStore.js'
+import {
+  isAbortError,
+  isPermanentFailure,
+  recoverGeneration,
+  type RecoveryAction,
+} from './streamRecovery.js'
 
 export const API_ERROR_MESSAGE_PREFIX = 'API Error'
 export const PROMPT_TOO_LONG_ERROR_MESSAGE = 'Prompt is too long'
@@ -31,6 +37,7 @@ export const CREDIT_BALANCE_TOO_LOW_ERROR_MESSAGE = 'Credit balance is too low'
 export const INVALID_API_KEY_ERROR_MESSAGE = 'Invalid API key'
 export const NO_CONTENT_MESSAGE = '(no content)'
 export const MAIN_QUERY_TEMPERATURE = 1
+const STREAM_ATTEMPTS = 3
 
 export function verifyApiKey(apiKey: string): Promise<boolean> {
   return Promise.resolve(Boolean(apiKey))
@@ -66,7 +73,13 @@ function usageFrom(usage?: LanguageModelUsage) {
 function assistantFrom(
   model: string,
   blocks: ContentBlock[],
-  extra: { error?: boolean; durationMs?: number; id?: string; usage?: LanguageModelUsage } = {},
+  extra: {
+    error?: boolean
+    durationMs?: number
+    id?: string
+    usage?: LanguageModelUsage
+    incomplete?: boolean
+  } = {},
 ): AssistantMessage {
   const content = blocks.length
     ? blocks
@@ -77,6 +90,7 @@ function assistantFrom(
     durationMs: extra.durationMs ?? 0,
     uuid: (extra.id ?? randomUUID()) as UUID,
     isApiErrorMessage: extra.error,
+    incomplete: extra.incomplete,
     message: {
       id: extra.id ?? randomUUID(),
       type: 'message',
@@ -242,6 +256,62 @@ function modelFor(kind: ProviderKind, modelId: string, baseURL: string | undefin
   return compatible.chatModel(modelId)
 }
 
+class StopRetry extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StopRetry'
+  }
+}
+
+function abortError(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason
+  const error = new Error('The operation was aborted.')
+  error.name = 'AbortError'
+  return error
+}
+
+function statusCodeOf(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object' || !('statusCode' in error)) return undefined
+  const status = Number(error.statusCode)
+  return Number.isFinite(status) ? status : undefined
+}
+
+function shouldStopRetry(error: unknown): boolean {
+  if (isAbortError(error) || error instanceof StopRetry) return true
+  const message = error instanceof Error ? error.message : String(error)
+  return isPermanentFailure(message, statusCodeOf(error))
+}
+
+function pause(attempt: number, signal: AbortSignal): Promise<void> {
+  const ms = 300 * (attempt + 1)
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(abortError(signal))
+    }
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+function silence(promises: Array<PromiseLike<unknown>>): void {
+  for (const promise of promises) void Promise.resolve(promise).catch(() => undefined)
+}
+
+interface Completion {
+  blocks: ContentBlock[]
+  usage?: LanguageModelUsage
+  id: string
+  recovery: RecoveryAction
+}
+
 async function complete(args: {
   kind: ProviderKind
   modelId: string
@@ -253,7 +323,8 @@ async function complete(args: {
   thinking: false | { budget: number }
   signal: AbortSignal
   onPartial?: (message: AssistantMessage) => void
-}): Promise<{ blocks: ContentBlock[]; usage?: LanguageModelUsage; id: string }> {
+}): Promise<Completion> {
+  if (args.signal.aborted) throw abortError(args.signal)
   const toolMap = args.tools.length ? await toolsFor(args.tools) : undefined
   const id = randomUUID()
   const result = streamText({
@@ -262,6 +333,9 @@ async function complete(args: {
     messages: toModelMessages(args.turns),
     tools: toolMap,
     abortSignal: args.signal,
+    onError() {
+      // The SDK's default handler prints the stack into the terminal.
+    },
     ...(args.thinking
       ? {
           providerOptions: {
@@ -274,37 +348,124 @@ async function complete(args: {
   })
 
   let text = ''
-  if (args.onPartial) {
-    for await (const delta of result.textStream) {
-      text += delta
-      if (!text) continue
-      args.onPartial(assistantFrom(args.modelId, [{ type: 'text', text, citations: [] }], { id }))
-    }
-  } else {
-    text = await result.text
-  }
-  const toolCalls = await result.toolCalls
   let reasoning = ''
+  let finishReason = ''
+  let failed = false
+  let unfinishedTool = false
+  let usage: LanguageModelUsage | undefined
+  const openTools = new Set<string>()
+  const toolCalls: Array<{ id: string; name: string; input: { [key: string]: unknown } }> = []
+  const publish = () => {
+    if (!text || !args.onPartial) return
+    args.onPartial(assistantFrom(args.modelId, [{ type: 'text', text, citations: [] }], { id }))
+  }
+
   try {
-    reasoning = (await result.reasoningText) || ''
-  } catch {
-    reasoning = ''
+    for await (const part of result.fullStream) {
+      switch (part.type) {
+        case 'text-delta':
+          text += part.text
+          publish()
+          break
+        case 'reasoning-delta':
+          reasoning += part.text
+          break
+        case 'tool-input-start':
+          openTools.add(part.id)
+          break
+        case 'tool-call':
+          openTools.delete(part.toolCallId)
+          if ('invalid' in part && part.invalid) {
+            unfinishedTool = true
+            break
+          }
+          toolCalls.push({
+            id: part.toolCallId,
+            name: part.toolName,
+            input:
+              part.input && typeof part.input === 'object'
+                ? (part.input as { [key: string]: unknown })
+                : {},
+          })
+          break
+        case 'error':
+          failed = true
+          if (shouldStopRetry(part.error)) throw part.error
+          break
+        case 'abort': {
+          const aborted = new Error('The operation was aborted.')
+          aborted.name = 'AbortError'
+          throw aborted
+        }
+        case 'finish-step':
+          finishReason = finishReason || part.finishReason
+          usage = usage ?? part.usage
+          break
+        case 'finish':
+          finishReason = part.finishReason
+          usage = part.totalUsage
+          break
+        default:
+          break
+      }
+    }
+  } catch (error) {
+    if (args.signal.aborted || isAbortError(error) || shouldStopRetry(error)) throw error
+    failed = true
+  } finally {
+    try {
+      silence([
+        result.usage,
+        result.finishReason,
+        result.toolCalls,
+        result.reasoningText,
+        result.steps,
+        result.response,
+        result.providerMetadata,
+      ])
+    } catch {
+      // Reading the result can reject after the stream has already failed.
+    }
   }
-  const usage = await result.usage
+
+  if (args.signal.aborted) throw abortError(args.signal)
+  if (openTools.size) unfinishedTool = true
+  const recovery = recoverGeneration({
+    text,
+    toolCallCount: toolCalls.length,
+    unfinishedTool,
+    finishReason,
+    failed,
+  })
   const blocks: ContentBlock[] = []
-  if (args.thinking && reasoning) {
-    blocks.push({ type: 'thinking', thinking: reasoning })
-  }
+  if (args.thinking && reasoning) blocks.push({ type: 'thinking', thinking: reasoning })
   if (text) blocks.push({ type: 'text', text, citations: [] })
   for (const call of toolCalls) {
-    blocks.push({
-      type: 'tool_use',
-      id: call.toolCallId,
-      name: call.toolName,
-      input: (call.input ?? {}) as { [key: string]: unknown },
-    })
+    blocks.push({ type: 'tool_use', id: call.id, name: call.name, input: call.input })
   }
-  return { blocks, usage, id }
+  return { blocks, usage, id, recovery }
+}
+
+async function withStreamRetries(
+  signal: AbortSignal,
+  run: () => Promise<Completion>,
+): Promise<Completion> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < STREAM_ATTEMPTS; attempt++) {
+    if (signal.aborted) throw abortError(signal)
+    try {
+      const completed = await run()
+      if (completed.recovery !== 'retry') return completed
+      lastError = new Error('The model stream dropped before it produced a response.')
+    } catch (error) {
+      if (signal.aborted || shouldStopRetry(error)) throw error
+      lastError = error
+    }
+    if (attempt < STREAM_ATTEMPTS - 1) await pause(attempt, signal)
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('The model stream dropped before it produced a response.')
 }
 
 export async function queryModel(
@@ -334,23 +495,21 @@ export async function queryModel(
         const excerpt = skillExcerpt(skill)
         if (excerpt) system += `\n\nFollow this skill when it applies:\n${excerpt}`
       }
-      const completed = await complete({
-        kind: provider.kind,
-        modelId: options.model || provider.model,
-        baseURL: provider.baseURL,
-        apiKey: provider.apiKey,
-        system,
-        turns: threadChat(system, messages).turns,
-        tools,
-        thinking,
-        signal,
-        onPartial: options.onPartial,
-      })
-      return assistantFrom(options.model || provider.model, completed.blocks, {
-        durationMs: Date.now() - started,
-        id: completed.id,
-        usage: completed.usage,
-      })
+      const completed = await withStreamRetries(signal, () =>
+        complete({
+          kind: provider.kind,
+          modelId: options.model || provider.model,
+          baseURL: provider.baseURL,
+          apiKey: provider.apiKey,
+          system,
+          turns: threadChat(system, messages).turns,
+          tools,
+          thinking,
+          signal,
+          onPartial: options.onPartial,
+        }),
+      )
+      return answerFrom(options.model || provider.model, completed, started)
     }
 
     if (!provider.nvidiaApiKey) {
@@ -361,60 +520,91 @@ export async function queryModel(
       )
     }
 
-    const choice = await pickNim({ requireVision: hasImage(messages), preferLongContext: false })
-    if (!choice) {
-      return textMessage(
-        'free-mode',
-        `${API_ERROR_MESSAGE_PREFIX}: Every free-mode model is out of requests. The thread stays here and was not sent to the local model.`,
-        true,
-      )
-    }
     const skill = selectSkill(task)
     if (skill) {
       const excerpt = skillExcerpt(skill)
       if (excerpt) system += `\n\nFollow this skill when it applies:\n${excerpt}`
     }
-    const completed = await complete({
-      kind: 'free',
-      modelId: choice.apiModel,
-      baseURL: 'https://integrate.api.nvidia.com/v1',
-      apiKey: provider.nvidiaApiKey,
-      system,
-      turns: threadChat(system, messages).turns,
-      tools,
-      thinking: false,
-      signal,
-      onPartial: options.onPartial,
-    })
-    return assistantFrom(choice.id, completed.blocks, {
-      durationMs: Date.now() - started,
-      id: completed.id,
-      usage: completed.usage,
-    })
+    const failed: string[] = []
+    const flags = { requireVision: hasImage(messages), preferLongContext: false }
+    let lastDrop: Error | undefined
+    for (let attempt = 0; attempt < STREAM_ATTEMPTS; attempt++) {
+      if (signal.aborted) throw abortError(signal)
+      const choice = await pickNim(flags, failed, attempt === 0)
+      if (!choice) {
+        if (!failed.length) {
+          return textMessage(
+            'free-mode',
+            `${API_ERROR_MESSAGE_PREFIX}: Every free-mode model is out of requests. The thread stays here and was not sent to the local model.`,
+            true,
+          )
+        }
+        break
+      }
+      try {
+        const completed = await complete({
+          kind: 'free',
+          modelId: choice.apiModel,
+          baseURL: 'https://integrate.api.nvidia.com/v1',
+          apiKey: provider.nvidiaApiKey,
+          system,
+          turns: threadChat(system, messages).turns,
+          tools,
+          thinking: false,
+          signal,
+          onPartial: options.onPartial,
+        })
+        if (completed.recovery !== 'retry') return answerFrom(choice.id, completed, started)
+        failed.push(choice.id)
+        setStickyModel(null)
+        lastDrop = new Error('The model stream dropped before it produced a response.')
+      } catch (error) {
+        if (signal.aborted || shouldStopRetry(error)) throw error
+        failed.push(choice.id)
+        setStickyModel(null)
+        lastDrop = error instanceof Error ? error : new Error(String(error))
+      }
+      if (attempt < STREAM_ATTEMPTS - 1) await pause(attempt, signal)
+    }
+    throw lastDrop ?? new Error('The model stream dropped before it produced a response.')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return textMessage(provider.model, `${API_ERROR_MESSAGE_PREFIX}: ${message}`, true)
   }
 }
 
-async function pickNim(flags: { requireVision: boolean; preferLongContext: boolean }) {
-  const now = Date.now()
-  let choice = chooseNimModel({
-    now,
-    usage: loadLedger(),
-    requireVision: flags.requireVision,
-    preferLongContext: flags.preferLongContext,
+function answerFrom(model: string, completed: Completion, started: number): AssistantMessage {
+  return assistantFrom(model, completed.blocks, {
+    durationMs: Date.now() - started,
+    id: completed.id,
+    usage: completed.usage,
+    incomplete: completed.recovery === 'continue',
   })
-  if (choice.kind === 'wait') {
-    const seconds = Math.max(1, Math.ceil(choice.waitMs / 1000))
-    console.error(`Free-mode models are cooling. Waiting ${seconds}s for the next request window.`)
-    await new Promise(resolve => setTimeout(resolve, choice.kind === 'wait' ? choice.waitMs : 0))
-    choice = chooseNimModel({
+}
+
+async function pickNim(
+  flags: { requireVision: boolean; preferLongContext: boolean },
+  exclude: string[] = [],
+  allowWait = true,
+) {
+  const catalog = exclude.length
+    ? NIM_CATALOG.filter(model => !exclude.includes(model.id))
+    : undefined
+  const choose = () =>
+    chooseNimModel({
       now: Date.now(),
       usage: loadLedger(),
       requireVision: flags.requireVision,
       preferLongContext: flags.preferLongContext,
+      catalog,
     })
+  let choice = choose()
+  if (choice.kind === 'wait') {
+    if (!allowWait) return null
+    const seconds = Math.max(1, Math.ceil(choice.waitMs / 1000))
+    console.error(`Free-mode models are cooling. Waiting ${seconds}s for the next request window.`)
+    await new Promise(resolve => setTimeout(resolve, choice.kind === 'wait' ? choice.waitMs : 0))
+    choice = choose()
   }
   if (choice.kind !== 'model') return null
   recordCall(choice.model.id)
@@ -440,34 +630,40 @@ export async function queryFast({
     if (provider.kind === 'free') {
       await ensureLocalServer()
       const chat = localChat(userPrompt)
-      const completed = await complete({
-        kind: 'free',
-        modelId: 'qwen3-0.6b',
-        baseURL: provider.localBaseURL,
-        apiKey: 'local',
-        system: systemPrompt[0] || chat.system,
-        turns: chat.turns,
-        tools: [],
-        thinking: false,
-        signal: signal ?? new AbortController().signal,
-      })
+      const fastSignal = signal ?? new AbortController().signal
+      const completed = await withStreamRetries(fastSignal, () =>
+        complete({
+          kind: 'free',
+          modelId: 'qwen3-0.6b',
+          baseURL: provider.localBaseURL,
+          apiKey: 'local',
+          system: systemPrompt[0] || chat.system,
+          turns: chat.turns,
+          tools: [],
+          thinking: false,
+          signal: fastSignal,
+        }),
+      )
       return assistantFrom('qwen3-0.6b', completed.blocks, {
         durationMs: Date.now() - started,
         id: completed.id,
         usage: completed.usage,
       })
     }
-    const completed = await complete({
-      kind: provider.kind,
-      modelId: provider.fastModel,
-      baseURL: provider.baseURL,
-      apiKey: provider.apiKey,
-      system: systemPrompt.join('\n\n'),
-      turns: [{ role: 'user', content: userPrompt }],
-      tools: [],
-      thinking: false,
-      signal: signal ?? new AbortController().signal,
-    })
+    const fastSignal = signal ?? new AbortController().signal
+    const completed = await withStreamRetries(fastSignal, () =>
+      complete({
+        kind: provider.kind,
+        modelId: provider.fastModel,
+        baseURL: provider.baseURL,
+        apiKey: provider.apiKey,
+        system: systemPrompt.join('\n\n'),
+        turns: [{ role: 'user', content: userPrompt }],
+        tools: [],
+        thinking: false,
+        signal: fastSignal,
+      }),
+    )
     return assistantFrom(provider.fastModel, completed.blocks, {
       durationMs: Date.now() - started,
       id: completed.id,

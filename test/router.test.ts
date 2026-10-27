@@ -220,6 +220,6 @@ test('the sticky model is remembered for the next choice', () => {
   assert.equal(modelForId('gpt-oss-20b')?.apiModel, 'openai/gpt-oss-20b')
   assert.equal(modelForId('missing'), undefined)
   assert.equal(findNimModel('openai/gpt-oss-20b')?.id, 'gpt-oss-20b')
-  assert.equal(isFastOnly(NIM_CATALOG.find(model => model.id === 'glm-5-3-flash')!), true)
-  assert.equal(isCapable(NIM_CATALOG.find(model => model.id === 'glm-5-3-flash')!), false)
+  assert.equal(isFastOnly(NIM_CATALOG.find(model => model.id === 'nemotron-3.5-lightning-30b-a3b')!), true)
+  assert.equal(isCapable(NIM_CATALOG.find(model => model.id === 'nemotron-3.5-lightning-30b-a3b')!), false)
 })
