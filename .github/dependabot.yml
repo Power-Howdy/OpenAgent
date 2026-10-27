@@ -6,7 +6,10 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "09:00"
-    # Only enable security updates, disable regular dependency bumps
+    # Security updates only
+    allow:
+      - dependency-type: "direct"
+        update-type: "security"
     open-pull-requests-limit: 10
     reviewers:
       - "severus"
@@ -16,7 +19,3 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
-    # Only allow security updates
-    allow:
-      - dependency-type: "direct"
-        update-type: "security"
