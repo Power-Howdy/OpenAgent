@@ -1,11 +1,35 @@
 {
   "name": "openagent",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "description": "OpenAgent Code, a multi-provider coding agent",
   "bin": {
     "openagent": "./bin/openagent.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/power-howdy/openagent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/power-howdy/openagent/issues"
+  },
+  "homepage": "https://github.com/power-howdy/openagent#readme",
+  "license": "Apache-2.0",
+  "keywords": [
+    "coding-agent",
+    "ai",
+    "cli",
+    "typescript",
+    "anthropic",
+    "openai",
+    "nim",
+    "local-llm"
+  ],
+  "author": "OpenAgent Contributors",
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/power-howdy"
   },
   "scripts": {
     "start": "tsx src/entrypoints/cli.tsx",
