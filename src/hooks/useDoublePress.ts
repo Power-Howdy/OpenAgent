@@ -11,7 +11,7 @@ export function useDoublePress(
   onFirstPress?: () => void,
 ): () => void {
   const lastPressRef = useRef<number>(0)
-  const timeoutRef = useRef<NodeJS.Timeout>()
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   return () => {
     const now = Date.now()

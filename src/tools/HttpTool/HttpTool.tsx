@@ -8,7 +8,7 @@ import { guardedFetch, isLoopback } from '../../services/webGuard.js'
 const inputSchema = z.object({
   method: z.string(),
   url: z.string(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   body: z.string().optional(),
 })
 

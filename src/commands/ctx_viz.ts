@@ -4,6 +4,7 @@ import Table from 'cli-table3'
 import { getSystemPrompt } from '../constants/prompts.js'
 import { getContext } from '../context.js'
 import { zodToJsonSchema } from 'zod-to-json-schema'
+import { z } from 'zod'
 import { getMessagesGetter } from '../messages.js'
 
 // Quick and dirty estimate of bytes per token for rough token counts
@@ -189,7 +190,7 @@ const command: Command = {
       const schema = JSON.stringify(
         'inputJSONSchema' in t && t.inputJSONSchema
           ? t.inputJSONSchema
-          : zodToJsonSchema(t.inputSchema),
+          : zodToJsonSchema(t.inputSchema as never),
       )
 
       return {
