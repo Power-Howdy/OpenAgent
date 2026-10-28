@@ -138,7 +138,7 @@ export default function TextInput({
   disableCursorMovementForUpDownKeys = false,
   cursorOffset,
   onChangeCursorOffset,
-}: Props): JSX.Element {
+}: Props): React.ReactNode {
   const { onInput, renderedValue } = useTextInput({
     value: originalValue,
     onChange,

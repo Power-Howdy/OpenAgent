@@ -304,9 +304,7 @@ async function readImage(
 }> {
   try {
     const stats = statSync(filePath)
-    const sharp = (
-      (await import('sharp')) as unknown as { default: typeof import('sharp') }
-    ).default
+    const sharp = (await import('sharp')).default
     const image = sharp(readFileSync(filePath))
     const metadata = await image.metadata()
 

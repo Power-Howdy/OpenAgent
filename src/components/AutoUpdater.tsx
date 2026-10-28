@@ -123,7 +123,7 @@ export function AutoUpdater({
       {isUpdating && (
         <>
           <Box>
-            <Text color={theme.secondaryText} dimColor wrap="end">
+            <Text color={theme.secondaryText} dimColor wrap="truncate-end">
               Auto-updating to v{versions.latest}…
             </Text>
           </Box>
