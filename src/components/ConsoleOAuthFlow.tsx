@@ -288,7 +288,7 @@ export function ConsoleOAuthFlow({ onDone }: Props): React.ReactNode {
   // We need to render the copy-able URL statically to prevent Ink <Text> from inserting
   // newlines in the middle of the URL (this breaks Safari). Because <Static> components are
   // only rendered once top-to-bottom, we also need to make everything above the URL static.
-  const staticItems: Record<string, JSX.Element> = {}
+  const staticItems: Record<string, React.ReactElement> = {}
   if (!isClearing) {
     staticItems.header = (
       <Box key="header" flexDirection="column" gap={1}>

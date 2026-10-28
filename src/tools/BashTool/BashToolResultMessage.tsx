@@ -9,7 +9,7 @@ type Props = {
   verbose: boolean
 }
 
-function BashToolResultMessage({ content, verbose }: Props): JSX.Element {
+function BashToolResultMessage({ content, verbose }: Props): React.ReactElement {
   const { stdout, stdoutLines, stderr, stderrLines } = content
 
   return (
