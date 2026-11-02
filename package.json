@@ -45,7 +45,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.89",
+    "@ai-sdk/anthropic": "^4.0.92",
     "@ai-sdk/openai": "^4.0.103",
     "@ai-sdk/openai-compatible": "^3.0.79",
     "@commander-js/extra-typings": "^15.0.0",
